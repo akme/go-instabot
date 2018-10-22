@@ -33,6 +33,12 @@ func initBolt() (db *bolt.DB, error error) {
 		return
 	}
 
+	// Setup the watching bucket.
+	_, err = tx.CreateBucketIfNotExists([]byte("watching"))
+	if err != nil {
+		return
+	}
+
 	if err := tx.Commit(); err != nil {
 		return
 	}
@@ -127,5 +133,73 @@ func setFollowed(db *bolt.DB, id string) error {
 		}
 		return nil
 	})
+	return nil
+}
+
+func setWatching(db *bolt.DB, id string) error {
+	d := time.Now().Format("20060102")
+	if err := db.Update(func(tx *bolt.Tx) error {
+		bk := tx.Bucket([]byte("watching"))
+
+		bs := bk.Get([]byte(id))
+		if bs == nil {
+			err := bk.Put([]byte(id), []byte(d))
+			if err != nil {
+				return err
+			}
+		} else {
+			return errors.Wrapf(fmt.Errorf("already exists"), "already watching for '%s'", id)
+
+		}
+		return nil
+	}); err != nil {
+		return err
+	}
+	return nil
+}
+
+func getWatching(db *bolt.DB, id string) (string, error) {
+	var prevDate string
+	err := db.View(func(tx *bolt.Tx) error {
+		bk := tx.Bucket([]byte("watching"))
+		if bk == nil {
+			return errors.Wrapf(fmt.Errorf("failed to find bucket"), "failed to get 'watching' bucket")
+		}
+		bs := bk.Get([]byte(id))
+		if bs == nil {
+			return nil
+		}
+		prevDate = string(bs)
+
+		return nil
+	})
+	return prevDate, err
+}
+
+func getWatchingList(db *bolt.DB) ([]string, error) {
+	var watchingList []string
+	err := db.View(func(tx *bolt.Tx) error {
+		bk := tx.Bucket([]byte("watching"))
+		if bk == nil {
+			return errors.Wrapf(fmt.Errorf("failed to find bucket"), "failed to get 'watching' bucket")
+		}
+		if err := bk.ForEach(func(k, v []byte) error {
+			watchingList = append(watchingList, string(k))
+			return nil
+		}); err != nil {
+			return err
+		}
+
+		return nil
+	})
+	return watchingList, err
+}
+
+func deleteWatching(db *bolt.DB, id string) error {
+	if err := db.Update(func(tx *bolt.Tx) error {
+		return tx.Bucket([]byte("watching")).Delete([]byte(id))
+	}); err != nil {
+		return err
+	}
 	return nil
 }

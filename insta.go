@@ -1315,6 +1315,28 @@ func likeFollowersPosts(db *bolt.DB) {
 	}
 }
 
+func addWatching(bot *tgbotapi.BotAPI, db *bolt.DB, userid string, userID int64) {
+	msg := tgbotapi.NewMessage(userID, "")
+	if len(userid) > 0 {
+		err := setWatching(db, string(userid))
+		if err != nil {
+			msg.Text = "Already watching " + userid
+		} else {
+			msg.Text = "Added " + userid + " for watching"
+		}
+		bot.Send(msg)
+	}
+}
+
+func sendWatching(bot *tgbotapi.BotAPI, db *bolt.DB, userID int64) {
+	msg := tgbotapi.NewMessage(userID, "")
+	watchingList, _ := getWatchingList(db)
+	for _, userid := range watchingList {
+		msg.Text += userid + "\n"
+	}
+	bot.Send(msg)
+}
+
 // func likeFollowersStories(db *bolt.DB) {
 // 	stories, _ := insta.GetReelsTrayFeed("")
 // 	length := len(stories.Tray)

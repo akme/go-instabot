@@ -208,6 +208,17 @@ func main() {
 					updateLimits(bot, args, int64(update.Message.From.ID))
 				case "like":
 					likeFollowersPosts(db)
+				case "watch":
+					if args == "" {
+						msg.Text = fmt.Sprintf("/watch username")
+						bot.Send(msg)
+					} else {
+						addWatching(bot, db, args, int64(update.Message.From.ID))
+					}
+
+				case "watching":
+					sendWatching(bot, db, int64(update.Message.From.ID))
+
 				default:
 					msg.Text = text
 					msg.ReplyMarkup = commandKeyboard
