@@ -39,6 +39,12 @@ func initBolt() (db *bolt.DB, error error) {
 		return
 	}
 
+	// Setup the followqueue bucket.
+	_, err = tx.CreateBucketIfNotExists([]byte("followqueue"))
+	if err != nil {
+		return
+	}
+
 	if err := tx.Commit(); err != nil {
 		return
 	}
@@ -136,8 +142,27 @@ func setFollowed(db *bolt.DB, id string) error {
 	return nil
 }
 
+// updateDB : store data
+func updateDB(db *bolt.DB, bucketName, key, value []byte) error {
+	err := db.Update(func(tx *bolt.Tx) error {
+		bkt, err := tx.CreateBucketIfNotExists(bucketName)
+		if err != nil {
+			return err
+		}
+		err = bkt.Put(key, value)
+		if err != nil {
+			return err
+		}
+		return nil
+	})
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
 func setWatching(db *bolt.DB, id string) error {
-	d := time.Now().Format("20060102")
+	d := "0"
 	if err := db.Update(func(tx *bolt.Tx) error {
 		bk := tx.Bucket([]byte("watching"))
 
@@ -195,11 +220,59 @@ func getWatchingList(db *bolt.DB) ([]string, error) {
 	return watchingList, err
 }
 
-func deleteWatching(db *bolt.DB, id string) error {
+func deleteKeyFromBucket(db *bolt.DB, bucketName, key string) error {
 	if err := db.Update(func(tx *bolt.Tx) error {
-		return tx.Bucket([]byte("watching")).Delete([]byte(id))
+		return tx.Bucket([]byte(bucketName)).Delete([]byte(key))
 	}); err != nil {
 		return err
 	}
 	return nil
+}
+
+func getUsersFromQueue(db *bolt.DB, limit int) []string {
+	var usersQueue []string
+	var current = 0
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket([]byte("followqueue"))
+
+		c := b.Cursor()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			if current < limit {
+				usersQueue = append(usersQueue, string(k))
+				//fmt.Printf("key=>[%s], value=[%s]\n", k, v)
+				current++
+			} else {
+				break
+			}
+		}
+		return nil
+	})
+
+	if err != nil {
+		fmt.Printf("failure : %s\n", err)
+	}
+	return usersQueue
+}
+
+func addToFollowQueue(db *bolt.DB, username string) {
+	date := time.Now().Format("20060102")
+	updateDB(db, []byte("followqueue"), []byte(username), []byte(date))
+}
+
+func iterateDB(db *bolt.DB, bucketName []byte) {
+	err := db.View(func(tx *bolt.Tx) error {
+		b := tx.Bucket(bucketName)
+
+		c := b.Cursor()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+			fmt.Printf("key=>[%s], value=[%s]\n", k, v)
+		}
+		return nil
+	})
+
+	if err != nil {
+		fmt.Printf("failure : %s\n", err)
+	}
 }

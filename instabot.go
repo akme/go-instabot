@@ -22,6 +22,7 @@ var (
 	unfollowRes        chan telegramResponse
 	followFollowersRes chan telegramResponse
 	followLikersRes    chan telegramResponse
+	followQueueRes     chan telegramResponse
 
 	state                    = make(map[string]int)
 	editMessage              = make(map[string]map[int]int)
@@ -39,11 +40,13 @@ var (
 	unfollowIsStarted     = abool.New()
 	refollowIsStarted     = abool.New()
 	followLikersIsStarted = abool.New()
+	followQueueIsStarted  = abool.New()
 
-	cronFollow   int
-	cronUnfollow int
-	cronStats    int
-	cronLike     int
+	cronFollow      int
+	cronUnfollow    int
+	cronStats       int
+	cronLike        int
+	cronFollowQueue int
 )
 var db *bolt.DB
 
@@ -76,6 +79,9 @@ func main() {
 
 	startfollowLikersChan, _, innerfollowLikersChan, stopFollowLikersChan := followLikersManager(db)
 	followLikersRes = make(chan telegramResponse, 10)
+
+	// startFollowQueueChan, _, _, stopFollowQueueChan := followQueueManager(db)
+	followQueueRes = make(chan telegramResponse, 10)
 
 	bot, err := tgbotapi.NewBotAPI(telegramToken)
 	if err != nil {
@@ -218,6 +224,12 @@ func main() {
 
 				case "watching":
 					sendWatching(bot, db, int64(update.Message.From.ID))
+
+				case "testah":
+					startFollowFromQueue(db, 10)
+					//getUsersFromQueue(db, 1)
+					//iterateDB(db, []byte("followqueue"))
+					//scrapFollowersFromUser(db, "interior_style_decor12")
 
 				default:
 					msg.Text = text

@@ -1337,6 +1337,140 @@ func sendWatching(bot *tgbotapi.BotAPI, db *bolt.DB, userID int64) {
 	bot.Send(msg)
 }
 
+func PercentageChange(old, new int) (delta float64) {
+	diff := float64(new - old)
+	delta = (diff / float64(old)) * 100
+	return
+}
+
+func getWatchingUser(db *bolt.DB) (string, error) {
+	var userid string
+	err := db.View(func(tx *bolt.Tx) error {
+		bk := tx.Bucket([]byte("watching"))
+		if bk == nil {
+			return fmt.Errorf("failed to find bucket")
+		}
+		var oldnumber int
+
+		c := tx.Bucket([]byte("watching")).Cursor()
+
+		for k, v := c.First(); k != nil; k, v = c.Next() {
+
+			oldnumber, _ = strconv.Atoi(string(v))
+			if oldnumber == 0 {
+				userid = string(k)
+				break
+			} else {
+				user, _ := insta.GetUserByUsername(string(k))
+
+				var newnumber = user.User.FollowerCount
+				if PercentageChange(oldnumber, newnumber) > 10 {
+					userid = string(k)
+					updateDB(db, []byte("watching"), []byte(userid), []byte(newnumber))
+					break
+				}
+			}
+		}
+		return nil
+	})
+	fmt.Println(userid)
+	return userid, err
+}
+
+func followQueueManager(db *bolt.DB) (startChan chan bool, outerChan, innerChan chan string, stopChan chan bool) {
+	startChan = make(chan bool)
+	outerChan = make(chan string)
+	innerChan = make(chan string)
+	stopChan = make(chan bool)
+	go func() {
+		for {
+			select {
+			case <-startChan:
+				if !followQueueIsStarted.IsSet() {
+					followQueueIsStarted.Set()
+					go startFollowFromQueue(db, 10)
+				} else {
+					fmt.Println("can't start task, task already running!")
+				}
+			case msg := <-outerChan:
+				fmt.Println("followqueue <- ", msg)
+			}
+
+		}
+	}()
+	return startChan, outerChan, innerChan, stopChan
+}
+
+func scrapFollowersFromUser(db *bolt.DB, username string) {
+
+	user, err := insta.GetUserByUsername(username)
+	if err != nil {
+		fmt.Println(fmt.Sprintf("%s", err))
+		return
+	}
+	if user.User.IsPrivate {
+		userFriendShip, err := insta.UserFriendShip(user.User.ID)
+		check(err)
+		if !userFriendShip.Following {
+			log.Printf("User profile \"%s\" is private and we are not following, can't process", username)
+			return
+		}
+	}
+	followers, err := insta.TotalUserFollowers(user.User.ID)
+	check(err)
+	var users = followers.Users
+	for index := range users {
+		if users[index].IsPrivate {
+			log.Printf("%s is private, skipping\n", users[index].Username)
+		} else {
+			previoslyFollowed, _ := getFollowed(db, users[index].Username)
+			if previoslyFollowed != "" {
+				log.Printf("%s previously followed at %s, skipping\n", users[index].Username, previoslyFollowed)
+			} else {
+				log.Printf("Adding %s to queue)", users[index].Username)
+				addToFollowQueue(db, users[index].Username)
+			}
+		}
+	}
+}
+
+func startFollowFromQueue(db *bolt.DB, limit int) {
+	usersQueue := getUsersFromQueue(db, limit)
+	for index := range usersQueue {
+		user, _ := insta.GetUserByUsername(usersQueue[index])
+		userFriendShip, err := insta.UserFriendShip(user.User.ID)
+		check(err)
+		if !userFriendShip.Following {
+			if user.User.IsPrivate {
+				log.Printf("%s is private, skipping follow\n", user.User.Username)
+			} else {
+				log.Printf("Following %s\n", user.User.Username)
+				resp, err := insta.Follow(user.User.ID)
+				if err != nil {
+					log.Println(err)
+				} else {
+					userFriendShip.Following = resp.FriendShipStatus.Following
+
+					if !userFriendShip.Following {
+						log.Println("Not followed")
+					}
+				}
+			}
+			if userFriendShip.Following {
+				numFollowed++
+				incStats(db, "follow")
+				setFollowed(db, user.User.Username)
+				deleteKeyFromBucket(db, "followqueue", user.User.Username)
+				time.Sleep(16 * time.Second)
+			} else {
+				time.Sleep(2 * time.Second)
+			}
+		} else {
+			log.Println("Already following " + user.User.Username)
+		}
+	}
+}
+
 // func likeFollowersStories(db *bolt.DB) {
 // 	stories, _ := insta.GetReelsTrayFeed("")
 // 	length := len(stories.Tray)
