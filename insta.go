@@ -1438,6 +1438,7 @@ func scrapFollowersFromUser(db *bolt.DB, username string) {
 }
 
 func startFollowFromQueue(db *bolt.DB, limit int) {
+	var current = 0
 	usersQueue := getUsersFromQueue(db, limit)
 	for index := range usersQueue {
 		user, _ := insta.GetUserByUsername(usersQueue[index])
@@ -1447,7 +1448,8 @@ func startFollowFromQueue(db *bolt.DB, limit int) {
 			if user.User.IsPrivate {
 				log.Printf("%s is private, skipping follow\n", user.User.Username)
 			} else {
-				log.Printf("Following %s\n", user.User.Username)
+				log.Printf("[%d/%d] Following %s\n", current, limit, user.User.Username)
+				current++
 				resp, err := insta.Follow(user.User.ID)
 				if err != nil {
 					log.Println(err)
