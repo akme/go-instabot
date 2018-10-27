@@ -237,7 +237,7 @@ func getUsersFromQueue(db *bolt.DB, limit int) []string {
 
 		c := b.Cursor()
 
-		for k, v := c.First(); k != nil; k, v = c.Next() {
+		for k, _ := c.First(); k != nil; k, _ = c.Next() {
 			if current < limit {
 				usersQueue = append(usersQueue, string(k))
 				//fmt.Printf("key=>[%s], value=[%s]\n", k, v)
