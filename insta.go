@@ -1358,10 +1358,11 @@ func getWatchingUser(db *bolt.DB) (string, error) {
 
 			oldnumber, _ = strconv.Atoi(string(v))
 			if oldnumber == 0 {
+				log.Printf("%s have %d followers, checking", k, oldnumber)
 				userid = string(k)
 				user, _ := insta.GetUserByUsername(string(k))
 				var newnumber = user.User.FollowerCount
-				updateDB(db, []byte("watching"), []byte(userid), []byte(string(newnumber)))
+				updateDB(db, []byte("watching"), []byte(userid), []byte(strconv.Itoa(newnumber)))
 				break
 			} else {
 				user, _ := insta.GetUserByUsername(string(k))
@@ -1369,7 +1370,7 @@ func getWatchingUser(db *bolt.DB) (string, error) {
 				var newnumber = user.User.FollowerCount
 				if PercentageChange(oldnumber, newnumber) > 10 {
 					userid = string(k)
-					updateDB(db, []byte("watching"), []byte(userid), []byte(string(newnumber)))
+					updateDB(db, []byte("watching"), []byte(userid), []byte(strconv.Itoa(newnumber)))
 					break
 				}
 			}
