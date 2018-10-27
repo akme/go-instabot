@@ -225,11 +225,13 @@ func main() {
 				case "watching":
 					sendWatching(bot, db, int64(update.Message.From.ID))
 
-				case "testah":
-					startFollowFromQueue(db, 10)
+				case "startfollowqueue":
+					startFollowFromQueue(db, 100)
 					//getUsersFromQueue(db, 1)
 					//iterateDB(db, []byte("followqueue"))
-					//scrapFollowersFromUser(db, "interior_style_decor12")
+				case "scrap":
+					watchinguser, _ := getWatchingUser(db)
+					scrapFollowersFromUser(db, watchinguser)
 
 				default:
 					msg.Text = text
