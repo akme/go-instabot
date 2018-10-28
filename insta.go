@@ -74,7 +74,7 @@ func followFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				username := msg
 				user, err := insta.GetUserByUsername(username)
 				if err != nil {
-					followFollowersRes <- telegramResponse{fmt.Sprintf("%s", err)}
+					telegramResp <- telegramResponse{fmt.Sprintf("%s", err), "refollow"}
 					stopChan <- true
 					return
 				}
@@ -83,7 +83,7 @@ func followFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 					userFriendShip, err := insta.UserFriendShip(user.User.ID)
 					check(err)
 					if !userFriendShip.Following {
-						followFollowersRes <- telegramResponse{"User profile is private and we are not following, can't process"}
+						telegramResp <- telegramResponse{"User profile is private and we are not following, can't process", "refollow"}
 						stopChan <- true
 						return
 					}
@@ -111,13 +111,13 @@ func followFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				var allCount = int(math.Min(float64(len(users)), float64(limit)))
 				switch {
 				case allCount == 0 && len(users) > 0:
-					followFollowersRes <- telegramResponse{"Follow limit reached :("}
+					telegramResp <- telegramResponse{"Follow limit reached :(", "refollow"}
 				case allCount <= 0:
-					followFollowersRes <- telegramResponse{"Followers not found :("}
+					telegramResp <- telegramResponse{"Followers not found :(", "refollow"}
 				default:
 					var current = 0
 
-					followFollowersRes <- telegramResponse{fmt.Sprintf("%d users will be followed", allCount)}
+					telegramResp <- telegramResponse{fmt.Sprintf("%d users will be followed", allCount), "refollow"}
 
 					for index := range users {
 						if !refollowIsStarted.IsSet() {
@@ -141,7 +141,7 @@ func followFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 								state["refollow_all_count"] = allCount
 
 								text := fmt.Sprintf("[%d/%d] refollowing %s (%d%%)", state["refollow_current"], state["refollow_all_count"], users[index].Username, state["refollow"])
-								followFollowersRes <- telegramResponse{text}
+								telegramResp <- telegramResponse{text, "refollow"}
 
 								if !*dev {
 									insta.Follow(users[index].ID)
@@ -161,7 +161,7 @@ func followFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 		case <-stopChan:
 			editMessage["refollow"] = make(map[int]int)
 			state["refollow"] = -1
-			followFollowersRes <- telegramResponse{fmt.Sprintf("\nRefollowed %d users!\n", state["refollow_current"])}
+			telegramResp <- telegramResponse{fmt.Sprintf("\nRefollowed %d users!\n", state["refollow_current"]), "refollow"}
 			return
 			//default:
 			//	time.Sleep(100 * time.Millisecond)
@@ -233,13 +233,13 @@ func followLikers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 								var allCount = int(math.Min(float64(len(users)), float64(limit)))
 								switch {
 								case allCount == 0 && len(users) > 0:
-									followLikersRes <- telegramResponse{"Follow limit reached :("}
+									telegramResp <- telegramResponse{"Follow limit reached :(", "followLikers"}
 								case allCount <= 0:
-									followLikersRes <- telegramResponse{"Likers not found :("}
+									telegramResp <- telegramResponse{"Likers not found :(", "followLikers"}
 								default:
 									var current = 0
 
-									followLikersRes <- telegramResponse{fmt.Sprintf("%d users will be followed", allCount)}
+									telegramResp <- telegramResponse{fmt.Sprintf("%d users will be followed", allCount), "followLikers"}
 
 									for index := range users {
 										if !followLikersIsStarted.IsSet() {
@@ -263,7 +263,7 @@ func followLikers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 												state["followLikers_all_count"] = allCount
 
 												text := fmt.Sprintf("[%d/%d] following %s (%d%%)", state["followLikers_current"], state["followLikers_all_count"], users[index].Username, state["followLikers"])
-												followLikersRes <- telegramResponse{text}
+												telegramResp <- telegramResponse{text, "followLikers"}
 
 												if !*dev {
 													insta.Follow(users[index].ID)
@@ -289,7 +289,7 @@ func followLikers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 		case <-stopChan:
 			editMessage["followLikers"] = make(map[int]int)
 			state["followLikers"] = -1
-			followLikersRes <- telegramResponse{fmt.Sprintf("\nfollowed %d users!\n", state["followLikers_current"])}
+			telegramResp <- telegramResponse{fmt.Sprintf("\nfollowed %d users!\n", state["followLikers_current"]), "followLikers"}
 			return
 			//default:
 			//	time.Sleep(100 * time.Millisecond)
@@ -378,7 +378,7 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				lastLikers := getLastLikers()
 				if len(lastLikers) > 0 {
 					if len(following.Users) > 0 {
-						unfollowRes <- telegramResponse{fmt.Sprintf("Found %d following, %d likers for last 10 posts\n", len(following.Users), len(lastLikers))}
+						telegramResp <- telegramResponse{fmt.Sprintf("Found %d following, %d likers for last 10 posts\n", len(following.Users), len(lastLikers)), "unfollow"}
 						var notLikers []response.User
 						for index := range following.Users {
 							if !stringInStringSlice(following.Users[index].Username, lastLikers) {
@@ -425,7 +425,7 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				var current = 0
 				var allCount = int(math.Min(float64(len(users)), float64(limit)))
 				if allCount > 0 {
-					unfollowRes <- telegramResponse{fmt.Sprintf("%d will be unfollowed", allCount)}
+					telegramResp <- telegramResponse{fmt.Sprintf("%d will be unfollowed", allCount), "unfollow"}
 
 					for index := range users {
 						if !unfollowIsStarted.IsSet() {
@@ -442,7 +442,7 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 						state["unfollow_current"] = current
 						state["unfollow_all_count"] = allCount
 
-						unfollowRes <- telegramResponse{fmt.Sprintf("[%d/%d] Unfollowing %s (%d%%)\n", state["unfollow_current"], state["unfollow_all_count"], users[index].Username, state["unfollow"])}
+						telegramResp <- telegramResponse{fmt.Sprintf("[%d/%d] Unfollowing %s (%d%%)\n", state["unfollow_current"], state["unfollow_all_count"], users[index].Username, state["unfollow"]), "unfollow"}
 						if !*dev {
 							insta.UnFollow(users[index].ID)
 							setFollowed(db, users[index].Username)
@@ -461,9 +461,9 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 			state["unfollow"] = -1
 
 			if state["unfollow_current"] == 0 {
-				unfollowRes <- telegramResponse{fmt.Sprintf("No one unfollow")}
+				telegramResp <- telegramResponse{fmt.Sprintf("No one unfollow"), "unfollow"}
 			} else {
-				unfollowRes <- telegramResponse{fmt.Sprintf("\nUnfollowed %d users are not following you back!\n", state["unfollow_current"])}
+				telegramResp <- telegramResponse{fmt.Sprintf("\nUnfollowed %d users are not following you back!\n", state["unfollow_current"]), "unfollow"}
 				state["unfollow_current"] = 0
 				state["unfollow_all_count"] = 0
 			}
@@ -577,7 +577,7 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 						_, err := insta.Follow(user.User.ID)
 						if err != nil {
 							text := fmt.Sprintf("test user not followed, cancel /follow %v", err)
-							followRes <- telegramResponse{text}
+							telegramResp <- telegramResponse{text, "follow"}
 
 							stopChan <- true
 							return
@@ -629,7 +629,7 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 						for tag := range report {
 							reportAsString += fmt.Sprintf("\n#%s: %d 🐾, %d 👍, %d 💌", tag, report[tag]["follow"], report[tag]["like"], report[tag]["comment"])
 						}
-						followRes <- telegramResponse{reportAsString}
+						telegramResp <- telegramResponse{reportAsString, "follow"}
 						browse(tag, db, stopChan)
 						if current != allCount {
 							time.Sleep(10 * time.Second)
@@ -641,7 +641,7 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 			}()
 		case <-stopChan:
 			elapsed := time.Since(followStartedAt)
-			followRes <- telegramResponse{"Follow finished"}
+			telegramResp <- telegramResponse{"Follow finished", "follow"}
 
 			editMessage["follow"] = make(map[int]int)
 			state["follow"] = -1
@@ -651,7 +651,7 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 			// 	reportAsString += fmt.Sprintf("#%s: %d 🐾, %d 👍, %d 💌\n", tag, report[tag]["follow"], report[tag]["like"], report[tag]["comment"])
 			// }
 			if reportAsString != "" {
-				followRes <- telegramResponse{reportAsString}
+				telegramResp <- telegramResponse{reportAsString, "follow"}
 			}
 			return
 			//default:

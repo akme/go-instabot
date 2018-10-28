@@ -15,14 +15,11 @@ import (
 
 type telegramResponse struct {
 	body string
+	key  string
 }
 
 var (
-	followRes          chan telegramResponse
-	unfollowRes        chan telegramResponse
-	followFollowersRes chan telegramResponse
-	followLikersRes    chan telegramResponse
-	followQueueRes     chan telegramResponse
+	telegramResp chan telegramResponse
 
 	state                    = make(map[string]int)
 	editMessage              = make(map[string]map[int]int)
@@ -68,20 +65,12 @@ func main() {
 
 	go login()
 
+	telegramResp = make(chan telegramResponse)
+
 	startFollowChan, _, _, stopFollowChan := followManager(db)
-	followRes = make(chan telegramResponse, 10)
-
 	startUnfollowChan, _, _, stopUnfollowChan := unfollowManager(db)
-	unfollowRes = make(chan telegramResponse, 10)
-
 	startRefollowChan, _, innerRefollowChan, stopRefollowChan := refollowManager(db)
-	followFollowersRes = make(chan telegramResponse, 10)
-
 	startfollowLikersChan, _, innerfollowLikersChan, stopFollowLikersChan := followLikersManager(db)
-	followLikersRes = make(chan telegramResponse, 10)
-
-	// startFollowQueueChan, _, _, stopFollowQueueChan := followQueueManager(db)
-	followQueueRes = make(chan telegramResponse, 10)
 
 	bot, err := tgbotapi.NewBotAPI(telegramToken)
 	if err != nil {
@@ -177,22 +166,18 @@ func main() {
 				case "cancelfollow":
 					if followIsStarted.IsSet() {
 						stopFollowChan <- true
-						// followRes <- telegramResponse{"Following canceled"}
 					}
 				case "cancelunfollow":
 					if unfollowIsStarted.IsSet() {
 						stopUnfollowChan <- true
-						// unfollowRes <- telegramResponse{"Unfollowing canceled"}
 					}
 				case "cancelrefollow":
 					if refollowIsStarted.IsSet() {
 						stopRefollowChan <- true
-						// followFollowersRes <- telegramResponse{"Refollowing canceled"}
 					}
 				case "cancelfollowlikers":
 					if followLikersIsStarted.IsSet() {
 						stopFollowLikersChan <- true
-						// followFollowersRes <- telegramResponse{"Refollowing canceled"}
 					}
 				case "stats":
 					sendStats(bot, db, c, int64(update.Message.From.ID))
@@ -241,84 +226,26 @@ func main() {
 					bot.Send(msg)
 				}
 			}
-		case resp := <-followRes:
-			log.Println(resp.body)
-			if len(editMessage["follow"]) > 0 {
-				for UserID, EditID := range editMessage["follow"] {
-					edit := tgbotapi.EditMessageTextConfig{
-						BaseEdit: tgbotapi.BaseEdit{
-							ChatID:    int64(UserID),
-							MessageID: EditID,
-						},
-						Text: resp.body,
+		case resp := <-telegramResp:
+			log.Println(resp.key, resp.body)
+			if resp.key != "" {
+				if len(editMessage[resp.key]) > 0 {
+					for UserID, EditID := range editMessage[resp.key] {
+						edit := tgbotapi.EditMessageTextConfig{
+							BaseEdit: tgbotapi.BaseEdit{
+								ChatID:    int64(UserID),
+								MessageID: EditID,
+							},
+							Text: resp.body,
+						}
+						bot.Send(edit)
 					}
-					bot.Send(edit)
-				}
-			} else {
-				msg := tgbotapi.NewMessage(reportID, resp.body)
-				msgRes, err := bot.Send(msg)
-				if err == nil {
-					editMessage["follow"][int(reportID)] = msgRes.MessageID
-				}
-			}
-		case resp := <-unfollowRes:
-			log.Println(resp.body)
-			if len(editMessage["unfollow"]) > 0 {
-				for UserID, EditID := range editMessage["unfollow"] {
-					edit := tgbotapi.EditMessageTextConfig{
-						BaseEdit: tgbotapi.BaseEdit{
-							ChatID:    int64(UserID),
-							MessageID: EditID,
-						},
-						Text: resp.body,
+				} else {
+					msg := tgbotapi.NewMessage(reportID, resp.body)
+					msgRes, err := bot.Send(msg)
+					if err == nil {
+						editMessage[resp.key][int(reportID)] = msgRes.MessageID
 					}
-					bot.Send(edit)
-				}
-			} else {
-				msg := tgbotapi.NewMessage(reportID, resp.body)
-				msgRes, err := bot.Send(msg)
-				if err == nil {
-					editMessage["unfollow"][int(reportID)] = msgRes.MessageID
-				}
-			}
-		case resp := <-followFollowersRes:
-			log.Println(resp.body)
-			if len(editMessage["refollow"]) > 0 {
-				for UserID, EditID := range editMessage["refollow"] {
-					edit := tgbotapi.EditMessageTextConfig{
-						BaseEdit: tgbotapi.BaseEdit{
-							ChatID:    int64(UserID),
-							MessageID: EditID,
-						},
-						Text: resp.body,
-					}
-					bot.Send(edit)
-				}
-			} else {
-				msg := tgbotapi.NewMessage(reportID, resp.body)
-				msgRes, err := bot.Send(msg)
-				if err == nil {
-					editMessage["refollow"][int(reportID)] = msgRes.MessageID
-				}
-			}
-		case resp := <-followLikersRes:
-			log.Println(resp.body)
-			if len(editMessage["followLikers"]) > 0 {
-				for UserID, EditID := range editMessage["followLikers"] {
-					edit := tgbotapi.EditMessageTextConfig{
-						BaseEdit: tgbotapi.BaseEdit{
-							ChatID:    int64(UserID),
-							MessageID: EditID,
-						},
-						Text: resp.body,
-					}
-					bot.Send(edit)
-				}
-			} else {
-				msg := tgbotapi.NewMessage(reportID, resp.body)
-				msgRes, err := bot.Send(msg)
-				if err == nil {
-					editMessage["followLikers"][int(reportID)] = msgRes.MessageID
 				}
 			}
 		}
