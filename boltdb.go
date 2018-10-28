@@ -276,3 +276,14 @@ func iterateDB(db *bolt.DB, bucketName []byte) {
 		fmt.Printf("failure : %s\n", err)
 	}
 }
+
+func bucketStats(db *bolt.DB, bucketName string) bolt.BucketStats {
+	var bucket bolt.BucketStats
+	if err := db.View(func(tx *bolt.Tx) error {
+		bucket = tx.Bucket([]byte(bucketName)).Stats()
+		return nil
+	}); err != nil {
+		fmt.Println(err)
+	}
+	return bucket
+}

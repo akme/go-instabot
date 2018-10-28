@@ -229,6 +229,8 @@ func main() {
 					startFollowFromQueue(db, 100)
 					//getUsersFromQueue(db, 1)
 					//iterateDB(db, []byte("followqueue"))
+				case "queuesize":
+					fmt.Println(bucketStats(db, "followqueue").KeyN)
 				case "scrap":
 					watchinguser, _ := getWatchingUser(db)
 					scrapFollowersFromUser(db, watchinguser)
