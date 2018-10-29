@@ -1340,7 +1340,7 @@ func sendWatching(bot *tgbotapi.BotAPI, db *bolt.DB, userID int64) {
 func sendQueueSize(bot *tgbotapi.BotAPI, db *bolt.DB, userID int64, bucket string) {
 	msg := tgbotapi.NewMessage(userID, "")
 	queuesize := bucketStats(db, bucket).KeyN
-	msg.Text = string(queuesize)
+	msg.Text = strconv.Itoa(queuesize)
 	bot.Send(msg)
 }
 
