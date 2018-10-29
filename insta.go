@@ -1337,6 +1337,13 @@ func sendWatching(bot *tgbotapi.BotAPI, db *bolt.DB, userID int64) {
 	bot.Send(msg)
 }
 
+func sendQueueSize(bot *tgbotapi.BotAPI, db *bolt.DB, userID int64, bucket string) {
+	msg := tgbotapi.NewMessage(userID, "")
+	queuesize := bucketStats(db, bucket).KeyN
+	msg.Text = string(queuesize)
+	bot.Send(msg)
+}
+
 func PercentageChange(old, new int) (delta float64) {
 	diff := float64(new - old)
 	delta = (diff / float64(old)) * 100

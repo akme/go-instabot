@@ -215,7 +215,7 @@ func main() {
 					//getUsersFromQueue(db, 1)
 					//iterateDB(db, []byte("followqueue"))
 				case "queuesize":
-					fmt.Println(bucketStats(db, "followqueue").KeyN)
+					sendQueueSize(bot, db, int64(update.Message.From.ID), "followqueue")
 				case "scrap":
 					watchinguser, _ := getWatchingUser(db)
 					scrapFollowersFromUser(db, watchinguser)
