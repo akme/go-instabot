@@ -153,11 +153,15 @@ func updateDB(db *bolt.DB, bucketName, key, value []byte) error {
 		if err != nil {
 			return err
 		}
+		if err := tx.Commit(); err != nil {
+			return err
+		}
 		return nil
 	})
 	if err != nil {
 		return err
 	}
+
 	return nil
 }
 
