@@ -1455,7 +1455,7 @@ func startFollowFromQueue(db *bolt.DB, limit int) {
 		check(err)
 		if !userFriendShip.Following {
 			if user.User.IsPrivate {
-				log.Printf("%s is private, skipping follow\n", user.User.Username)
+				log.Printf("%s is private, skipping follow\n", usersQueue[index])
 			} else {
 				log.Printf("[%d/%d] Following %s\n", current, limit, usersQueue[index])
 				resp, err := insta.Follow(user.User.ID)
@@ -1472,15 +1472,15 @@ func startFollowFromQueue(db *bolt.DB, limit int) {
 			if userFriendShip.Following {
 				numFollowed++
 				incStats(db, "refollow")
-				setFollowed(db, user.User.Username)
+				setFollowed(db, usersQueue[index])
 				time.Sleep(16 * time.Second)
 			} else {
 				time.Sleep(2 * time.Second)
 			}
 		} else {
-			log.Println("Already following " + user.User.Username)
+			log.Println("Already following " + usersQueue[index])
 		}
-		deleteKeyFromBucket(db, "followqueue", user.User.Username)
+		deleteKeyFromBucket(db, "followqueue", usersQueue[index])
 	}
 }
 
