@@ -1473,7 +1473,6 @@ func startFollowFromQueue(db *bolt.DB, limit int) {
 				numFollowed++
 				incStats(db, "refollow")
 				setFollowed(db, user.User.Username)
-				deleteKeyFromBucket(db, "followqueue", user.User.Username)
 				time.Sleep(16 * time.Second)
 			} else {
 				time.Sleep(2 * time.Second)
@@ -1481,6 +1480,7 @@ func startFollowFromQueue(db *bolt.DB, limit int) {
 		} else {
 			log.Println("Already following " + user.User.Username)
 		}
+		deleteKeyFromBucket(db, "followqueue", user.User.Username)
 	}
 }
 
