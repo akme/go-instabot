@@ -1453,7 +1453,7 @@ func startFollowFromQueue(db *bolt.DB, limit int) {
 		user, err := insta.GetUserByUsername(usersQueue[index])
 		if err != nil {
 			log.Printf("[%d/%d] %s doesn't exist\n", current, limit, usersQueue[index])
-			log.Println(err)
+			deleteKeyFromBucket(db, "followqueue", usersQueue[index])
 			continue
 		}
 		userFriendShip, err := insta.UserFriendShip(user.User.ID)
