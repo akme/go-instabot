@@ -13,9 +13,10 @@ import (
 	"strings"
 	"time"
 
-	"github.com/ahmdrz/goinsta/response"
 	"github.com/spf13/viper"
-	"gopkg.in/telegram-bot-api.v4"
+	"github.com/tducasse/goinsta/response"
+
+	tgbotapi "gopkg.in/telegram-bot-api.v4"
 )
 
 // Whether we are in development mode or not
@@ -49,6 +50,9 @@ var limits map[string]int
 
 // Comments list
 var commentsList []string
+
+// White list. Do not put the '@' in the config file
+var whiteList []string
 
 // Report that will be sent at the end of the script
 var report map[string]map[string]int
@@ -121,6 +125,8 @@ func getConfig() {
 	tagsList = viper.GetStringSlice("tags")
 
 	commentsList = viper.GetStringSlice("comments")
+
+	whiteList = viper.GetStringSlice("whitelist")
 
 	reportID = viper.GetInt64("user.telegram.reportID")
 	admins = viper.GetStringSlice("user.telegram.admins")

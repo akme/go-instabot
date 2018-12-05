@@ -14,12 +14,15 @@ import (
 	"time"
 
 	"github.com/ad/cron"
-	"github.com/ahmdrz/goinsta"
-	"github.com/ahmdrz/goinsta/response"
+
+	"github.com/tducasse/goinsta"
+	"github.com/tducasse/goinsta/response"
+	"github.com/tducasse/goinsta/store"
+
 	"github.com/boltdb/bolt"
 	"github.com/spf13/viper"
-	"github.com/tducasse/goinsta/store"
-	"gopkg.in/telegram-bot-api.v4"
+
+	tgbotapi "gopkg.in/telegram-bot-api.v4"
 )
 
 // Insta is a goinsta.Instagram instance
@@ -437,6 +440,11 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 							continue
 						}
 
+						if stringInStringSlice(users[index].Username, whiteList) {
+							telegramResp <- telegramResponse{fmt.Sprintf("[%d/%d] Skip Unfollowing %s (%d%%), in white list\n", state["unfollow_current"], state["unfollow_all_count"], users[index].Username, state["unfollow"]), "unfollow"}
+							continue
+						}
+
 						current++
 						state["unfollow"] = int(current * 100 / allCount)
 						state["unfollow_current"] = current
@@ -720,6 +728,11 @@ func goThrough(tag string, db *bolt.DB, images response.TagFeedsResponse, stopCh
 		// Check if we should fetch new images for tag
 		if i >= followCount && i >= likeCount && i >= commentCount {
 			break
+		}
+
+		if stringInStringSlice(images.FeedsResponse.Items[index].User.Username, whiteList) {
+			log.Printf("Skip following %s, in white list\n", images.FeedsResponse.Items[index].User.Username)
+			continue
 		}
 
 		// Getting the user info
@@ -1207,6 +1220,60 @@ func removeTags(bot *tgbotapi.BotAPI, tags string, userID int64) {
 		msg.Text = "Tags removed"
 	} else {
 		msg.Text = "Tags is empty"
+	}
+
+	bot.Send(msg)
+}
+
+func sendWhitelist(bot *tgbotapi.BotAPI, UserID int64) {
+	msg := tgbotapi.NewMessage(UserID, "")
+	if len(whiteList) > 0 {
+		// keys := GetKeys(tagsList)
+		// msg.Text = strings.Join(keys, ", ")
+		msg.Text = strings.Join(whiteList, ", ")
+	} else {
+		msg.Text = "whitelist is empty"
+	}
+
+	bot.Send(msg)
+}
+
+func addWhitelist(bot *tgbotapi.BotAPI, item string, UserID int64) {
+	msg := tgbotapi.NewMessage(UserID, "")
+	// if len(tags) > 0 {
+	item = strings.Replace(item, ".", "", -1)
+	if len(item) > 0 {
+		newWhiteList := strings.Split(item, ", ")
+		newWhiteList = append(whiteList, newWhiteList...)
+		newWhiteList = sliceUnique(newWhiteList)
+		viper.Set("whitelist", newWhiteList)
+		viper.WriteConfig()
+		msg.Text = "whiteList added"
+	} else {
+		msg.Text = "Item is empty"
+	}
+
+	bot.Send(msg)
+}
+
+func removeWhitelist(bot *tgbotapi.BotAPI, items string, UserID int64) {
+	msg := tgbotapi.NewMessage(UserID, "")
+	if len(items) > 0 {
+		removeWhiteList := strings.Split(items, ", ")
+		var newWhiteList []string
+		for _, item := range whiteList {
+			if stringInStringSlice(item, removeWhiteList) {
+
+			} else {
+				newWhiteList = append(newWhiteList, item)
+			}
+		}
+		newWhiteList = sliceUnique(newWhiteList)
+		viper.Set("whitelist", newWhiteList)
+		viper.WriteConfig()
+		msg.Text = "whiteList removed"
+	} else {
+		msg.Text = "Item is empty"
 	}
 
 	bot.Send(msg)

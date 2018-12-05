@@ -3,6 +3,9 @@ package main
 import (
 	"fmt"
 	"log"
+	"os"
+	"os/signal"
+	"time"
 
 	"github.com/ad/cron"
 	"github.com/boltdb/bolt"
@@ -10,7 +13,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
 	"github.com/tevino/abool"
-	"gopkg.in/telegram-bot-api.v4"
+	tgbotapi "gopkg.in/telegram-bot-api.v4"
 )
 
 type telegramResponse struct {
@@ -80,6 +83,10 @@ func main() {
 	bot.Debug = false
 	log.Printf("Authorized on account %s", bot.Self.UserName)
 
+	msg := tgbotapi.NewMessage(int64(reportID), "Starting...")
+	msg.DisableNotification = true
+	bot.Send(msg)
+
 	var ucfg = tgbotapi.NewUpdate(0)
 	ucfg.Timeout = 60
 
@@ -97,6 +104,18 @@ func main() {
 	for _, task := range c.Entries() {
 		log.Println(task.Next)
 	}
+
+	go func() {
+		sigchan := make(chan os.Signal, 10)
+		signal.Notify(sigchan, os.Interrupt)
+		<-sigchan
+
+		msg := tgbotapi.NewMessage(int64(reportID), "Stopping...")
+		msg.DisableNotification = true
+		bot.Send(msg)
+		time.Sleep(3 * time.Second)
+		os.Exit(0)
+	}()
 
 	// read updated
 	for { //update := range updates {
@@ -193,6 +212,12 @@ func main() {
 					addTags(bot, args, int64(update.Message.From.ID))
 				case "removetags":
 					removeTags(bot, args, int64(update.Message.From.ID))
+				case "getwhitelist":
+					sendWhitelist(bot, int64(update.Message.From.ID))
+				case "addwhitelist":
+					addWhitelist(bot, args, int64(update.Message.From.ID))
+				case "removewhitelist":
+					removeWhitelist(bot, args, int64(update.Message.From.ID))
 				case "getlimits":
 					getLimits(bot, int64(update.Message.From.ID))
 				case "updatelimits":

@@ -42,5 +42,6 @@
         "awesome",
         "wow",
         "nice pic"
-    ]
+    ],
+    "whitelist": []
 }
