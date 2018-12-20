@@ -1,0 +1,6 @@
+cp go-instabot.service /lib/systemd/system/go-instabot.service
+
+systemctl enable go-instabot 
+service go-instabot start
+service go-instabot restart
+service go-instabot status

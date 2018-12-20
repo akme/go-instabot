@@ -27,3 +27,4 @@ pkg/
 vendor/
 go-instabot-ad
 .vscode/
+.DS_Store

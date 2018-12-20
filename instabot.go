@@ -59,7 +59,8 @@ func main() {
 
 	db, err := initBolt()
 	if err != nil {
-		log.Fatal(err)
+		log.Println(err)
+		return
 	}
 	defer db.Close()
 
@@ -78,7 +79,8 @@ func main() {
 
 	bot, err := tgbotapi.NewBotAPI(telegramToken)
 	if err != nil {
-		log.Panic(err)
+		log.Println(err)
+		return
 	}
 
 	bot.Debug = false
@@ -92,7 +94,6 @@ func main() {
 	ucfg.Timeout = 60
 
 	updates, err := bot.GetUpdatesChan(ucfg)
-
 	if err != nil {
 		log.Fatalf("[INIT] [Failed to init Telegram updates chan: %v]", err)
 	}

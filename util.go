@@ -142,7 +142,8 @@ func getConfig() {
 func send(body string, success bool) {
 	bot, err := tgbotapi.NewBotAPI(viper.GetString("user.telegram.token"))
 	if err != nil {
-		log.Panic(err)
+		log.Println(err)
+		return
 	}
 
 	bot.Debug = false
