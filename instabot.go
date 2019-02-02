@@ -99,7 +99,7 @@ func main() {
 	}
 
 	cronFollow, _ = c.AddFunc("0 0 9 * * *", func() { fmt.Println("Start follow"); startFollow(bot, startFollowChan, reportID) })
-	cronUnfollow, _ = c.AddFunc("0 0 22 * * *", func() { fmt.Println("Start unfollow"); startUnfollow(bot, startUnfollowChan, reportID) })
+	cronUnfollow, _ = c.AddFunc("0 1 0 * * *", func() { fmt.Println("Start unfollow"); startUnfollow(bot, startUnfollowChan, reportID) })
 	cronStats, _ = c.AddFunc("0 59 23 * * *", func() { fmt.Println("Send stats"); sendStats(bot, db, c, -1) })
 	cronLike, _ = c.AddFunc("0 30 10-21 * * *", func() { fmt.Println("Like followers"); likeFollowersPosts(db) })
 	cronRefollow, _ = c.AddFunc("0 0 11-21 * * *", func() { fmt.Println("Start refollow"); startFollowFromQueue(db, 100) })
