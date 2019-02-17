@@ -28,3 +28,4 @@ vendor/
 go-instabot-ad
 .vscode/
 .DS_Store
+config/config.json
