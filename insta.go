@@ -743,7 +743,7 @@ func goThrough(tag string, db *bolt.DB, images response.TagFeedsResponse, stopCh
 			// log.Println("from cache " + posterInfo.User.Username + " - for #" + tag)
 		} else {
 			err := retry(10, 20*time.Second, func() (err error) {
-				posterInfo, err = insta.GetUserByID(images.FeedsResponse.Items[index].User.ID)
+				posterInfo, err = insta.GetUserByUsername(images.FeedsResponse.Items[index].User.Username)
 				if err == nil {
 					usersInfo[images.FeedsResponse.Items[index].User.Username] = posterInfo
 				}

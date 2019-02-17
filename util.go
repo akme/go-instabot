@@ -65,7 +65,7 @@ var numCommented int
 // check will log.Fatal if err is an error
 func check(err error) {
 	if err != nil {
-		log.Fatal("ERROR:", err)
+		log.Println("ERROR:", err)
 	}
 }
 
