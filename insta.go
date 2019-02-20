@@ -72,7 +72,10 @@ func followFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 		case msg := <-innerChan:
 			fmt.Println("refollow <- ", msg)
 			go func() {
+				l.Lock()
 				state["refollow"] = 0
+				l.Unlock()
+
 				time.Sleep(1 * time.Second)
 				username := msg
 				user, err := insta.GetUserByUsername(username)
@@ -139,9 +142,12 @@ func followFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 								log.Printf("%s previously followed at %s, skipping\n", users[index].Username, previoslyFollowed)
 							} else {
 								current++
+
+								l.Lock()
 								state["refollow"] = int(current * 100 / allCount)
 								state["refollow_current"] = current
 								state["refollow_all_count"] = allCount
+								l.Unlock()
 
 								text := fmt.Sprintf("[%d/%d] refollowing %s (%d%%)", state["refollow_current"], state["refollow_all_count"], users[index].Username, state["refollow"])
 								telegramResp <- telegramResponse{text, "refollow"}
@@ -162,8 +168,11 @@ func followFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				stopChan <- true
 			}()
 		case <-stopChan:
+			l.Lock()
 			editMessage["refollow"] = make(map[int]int)
 			state["refollow"] = -1
+			l.Unlock()
+
 			telegramResp <- telegramResponse{fmt.Sprintf("\nRefollowed %d users!\n", state["refollow_current"]), "refollow"}
 			return
 			//default:
@@ -205,7 +214,10 @@ func followLikers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 		case msg := <-innerChan:
 			fmt.Println("followLikers <- ", msg)
 			go func() {
+				l.Lock()
 				state["followLikers"] = 0
+				l.Unlock()
+
 				time.Sleep(1 * time.Second)
 
 				if len(msg) > 0 {
@@ -261,9 +273,12 @@ func followLikers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 												log.Printf("%s previously followed at %s, skipping\n", users[index].Username, previoslyFollowed)
 											} else {
 												current++
+
+												l.Lock()
 												state["followLikers"] = int(current * 100 / allCount)
 												state["followLikers_current"] = current
 												state["followLikers_all_count"] = allCount
+												l.Unlock()
 
 												text := fmt.Sprintf("[%d/%d] following %s (%d%%)", state["followLikers_current"], state["followLikers_all_count"], users[index].Username, state["followLikers"])
 												telegramResp <- telegramResponse{text, "followLikers"}
@@ -290,8 +305,11 @@ func followLikers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				stopChan <- true
 			}()
 		case <-stopChan:
+			l.Lock()
 			editMessage["followLikers"] = make(map[int]int)
 			state["followLikers"] = -1
+			l.Unlock()
+
 			telegramResp <- telegramResponse{fmt.Sprintf("\nfollowed %d users!\n", state["followLikers_current"]), "followLikers"}
 			return
 			//default:
@@ -333,7 +351,11 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 		case msg := <-innerChan:
 			fmt.Println("unfollow <- ", msg)
 			go func() {
+
+				l.Lock()
 				state["unfollow"] = 0
+				l.Unlock()
+
 				time.Sleep(1 * time.Second)
 
 				var limit = viper.GetInt("limits.max_unfollow_per_day")
@@ -446,9 +468,11 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 						}
 
 						current++
+						l.Lock()
 						state["unfollow"] = int(current * 100 / allCount)
 						state["unfollow_current"] = current
 						state["unfollow_all_count"] = allCount
+						l.Unlock()
 
 						telegramResp <- telegramResponse{fmt.Sprintf("[%d/%d] Unfollowing %s (%d%%)\n", state["unfollow_current"], state["unfollow_all_count"], users[index].Username, state["unfollow"]), "unfollow"}
 						if !*dev {
@@ -465,15 +489,19 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				stopChan <- true
 			}()
 		case <-stopChan:
+			l.Lock()
 			editMessage["unfollow"] = make(map[int]int)
 			state["unfollow"] = -1
+			l.Unlock()
 
 			if state["unfollow_current"] == 0 {
 				telegramResp <- telegramResponse{fmt.Sprintf("No one unfollow"), "unfollow"}
 			} else {
 				telegramResp <- telegramResponse{fmt.Sprintf("\nUnfollowed %d users are not following you back!\n", state["unfollow_current"]), "unfollow"}
+				l.Lock()
 				state["unfollow_current"] = 0
 				state["unfollow_all_count"] = 0
+				l.Unlock()
 			}
 			return
 			//default:
@@ -569,8 +597,12 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 		case msg := <-innerChan:
 			fmt.Println("follow <- ", msg)
 			go func() {
+
+				l.Lock()
 				followStartedAt = time.Now()
 				state["follow"] = 0
+				l.Unlock()
+
 				time.Sleep(1 * time.Second)
 
 				report = make(map[string]map[string]int)
@@ -608,9 +640,11 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 
 						current++
 
+						l.Lock()
 						state["follow"] = int((current - 1) * 100 / allCount)
 						state["follow_current"] = current
 						state["follow_all_count"] = allCount
+						l.Unlock()
 
 						// limitsConf := viper.GetStringMap("tags." + tag)
 
@@ -628,7 +662,9 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 
 						reportAsString := fmt.Sprintf("\n[%d/%d] ➜ Current tag is %s (%d%%)", state["follow_current"], state["follow_all_count"], tag, state["follow"])
 						if current > 1 {
+							l.RLock()
 							elapsed := time.Since(followStartedAt)
+							l.RUnlock()
 							perOne := elapsed.Seconds() / float64(current)
 							duration := time.Duration(time.Duration(perOne*float64(allCount-current+1)) * time.Second)
 							reportAsString += fmt.Sprintf(" ~%s", duration.Round(time.Second))
@@ -648,11 +684,17 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				stopChan <- true
 			}()
 		case <-stopChan:
+
+			l.RLock()
 			elapsed := time.Since(followStartedAt)
+			l.RUnlock()
+
 			telegramResp <- telegramResponse{"Follow finished", "follow"}
 
+			l.Lock()
 			editMessage["follow"] = make(map[int]int)
 			state["follow"] = -1
+			l.Unlock()
 
 			reportAsString := fmt.Sprintf("Following is finished by %s\n", elapsed.Round(time.Second))
 			// for tag := range report {
@@ -930,8 +972,14 @@ func startFollow(bot *tgbotapi.BotAPI, startChan chan bool, userID int64) {
 	msg := tgbotapi.NewMessage(userID, "")
 	if followIsStarted.IsSet() {
 		msg.Text = fmt.Sprintf("Follow in progress (%d%%)", state["follow"])
-		if len(editMessage["follow"]) > 0 && intInStringSlice(int(userID), getKeys(editMessage["follow"])) {
-			for UserID, EditID := range editMessage["follow"] {
+
+		l.RLock()
+		rn := editMessage["follow"]
+		ln := len(rn)
+		l.RUnlock()
+
+		if ln > 0 && intInStringSlice(int(userID), getKeys(rn)) {
+			for UserID, EditID := range rn {
 				edit := tgbotapi.EditMessageTextConfig{
 					BaseEdit: tgbotapi.BaseEdit{
 						ChatID:    int64(UserID),
@@ -944,7 +992,9 @@ func startFollow(bot *tgbotapi.BotAPI, startChan chan bool, userID int64) {
 		} else {
 			msgRes, err := bot.Send(msg)
 			if err == nil {
+				l.Lock()
 				editMessage["follow"][int(userID)] = msgRes.MessageID
+				l.Unlock()
 			}
 		}
 	} else {
@@ -952,7 +1002,9 @@ func startFollow(bot *tgbotapi.BotAPI, startChan chan bool, userID int64) {
 		msg.Text = "Starting follow"
 		msgRes, err := bot.Send(msg)
 		if err == nil {
+			l.Lock()
 			editMessage["follow"][int(userID)] = msgRes.MessageID
+			l.Unlock()
 		}
 	}
 }
@@ -961,8 +1013,14 @@ func startUnfollow(bot *tgbotapi.BotAPI, startChan chan bool, userID int64) {
 	msg := tgbotapi.NewMessage(userID, "")
 	if unfollowIsStarted.IsSet() {
 		msg.Text = fmt.Sprintf("Unfollow in progress (%d%%)", state["unfollow"])
-		if len(editMessage["unfollow"]) > 0 && intInStringSlice(int(userID), getKeys(editMessage["unfollow"])) {
-			for UserID, EditID := range editMessage["unfollow"] {
+
+		l.RLock()
+		rn := editMessage["unfollow"]
+		ln := len(rn)
+		l.RUnlock()
+
+		if ln > 0 && intInStringSlice(int(userID), getKeys(rn)) {
+			for UserID, EditID := range rn {
 				edit := tgbotapi.EditMessageTextConfig{
 					BaseEdit: tgbotapi.BaseEdit{
 						ChatID:    int64(UserID),
@@ -976,7 +1034,9 @@ func startUnfollow(bot *tgbotapi.BotAPI, startChan chan bool, userID int64) {
 			msgRes, err := bot.Send(msg)
 			if err == nil {
 				// log.Print(msgRes, msgRes.MessageID)
+				l.Lock()
 				editMessage["unfollow"][int(userID)] = msgRes.MessageID
+				l.Unlock()
 			}
 		}
 	} else {
@@ -985,7 +1045,9 @@ func startUnfollow(bot *tgbotapi.BotAPI, startChan chan bool, userID int64) {
 		fmt.Println(msg.Text)
 		msgRes, err := bot.Send(msg)
 		if err == nil {
+			l.Lock()
 			editMessage["unfollow"][int(userID)] = msgRes.MessageID
+			l.Unlock()
 		}
 	}
 }
@@ -994,11 +1056,17 @@ func startRefollow(bot *tgbotapi.BotAPI, startChan chan bool, innerRefollowChan 
 	msg := tgbotapi.NewMessage(userID, "")
 	if refollowIsStarted.IsSet() {
 		msg.Text = fmt.Sprintf("Refollow in progress (%d%%)", state["refollow"])
-		if len(editMessage["refollow"]) > 0 && intInStringSlice(int(userID), getKeys(editMessage["refollow"])) {
+
+		l.RLock()
+		rn := editMessage["refollow"]
+		ln := len(rn)
+		l.RUnlock()
+
+		if ln > 0 && intInStringSlice(int(userID), getKeys(rn)) {
 			edit := tgbotapi.EditMessageTextConfig{
 				BaseEdit: tgbotapi.BaseEdit{
 					ChatID:    int64(userID),
-					MessageID: editMessage["refollow"][int(userID)],
+					MessageID: rn[int(userID)],
 				},
 				Text: msg.Text,
 			}
@@ -1006,7 +1074,9 @@ func startRefollow(bot *tgbotapi.BotAPI, startChan chan bool, innerRefollowChan 
 		} else {
 			msgRes, err := bot.Send(msg)
 			if err == nil {
+				l.Lock()
 				editMessage["refollow"][int(userID)] = msgRes.MessageID
+				l.Unlock()
 			}
 		}
 	} else {
@@ -1014,7 +1084,9 @@ func startRefollow(bot *tgbotapi.BotAPI, startChan chan bool, innerRefollowChan 
 		msg.Text = "Starting refollow"
 		msgRes, err := bot.Send(msg)
 		if err == nil {
+			l.Lock()
 			editMessage["refollow"][int(userID)] = msgRes.MessageID
+			l.Unlock()
 		}
 		innerRefollowChan <- target
 	}
@@ -1024,11 +1096,17 @@ func startFollowLikers(bot *tgbotapi.BotAPI, startChan chan bool, innerFollowLik
 	msg := tgbotapi.NewMessage(userID, "")
 	if followLikersIsStarted.IsSet() {
 		msg.Text = fmt.Sprintf("followLikers in progress (%d%%)", state["followLikers"])
-		if len(editMessage["followLikers"]) > 0 && intInStringSlice(int(userID), getKeys(editMessage["followLikers"])) {
+
+		l.RLock()
+		rn := editMessage["followLikers"]
+		ln := len(rn)
+		l.RUnlock()
+
+		if ln > 0 && intInStringSlice(int(userID), getKeys(rn)) {
 			edit := tgbotapi.EditMessageTextConfig{
 				BaseEdit: tgbotapi.BaseEdit{
 					ChatID:    int64(userID),
-					MessageID: editMessage["followLikers"][int(userID)],
+					MessageID: rn[int(userID)],
 				},
 				Text: msg.Text,
 			}
@@ -1036,7 +1114,9 @@ func startFollowLikers(bot *tgbotapi.BotAPI, startChan chan bool, innerFollowLik
 		} else {
 			msgRes, err := bot.Send(msg)
 			if err == nil {
+				l.Lock()
 				editMessage["followLikers"][int(userID)] = msgRes.MessageID
+				l.Unlock()
 			}
 		}
 	} else {
@@ -1044,7 +1124,9 @@ func startFollowLikers(bot *tgbotapi.BotAPI, startChan chan bool, innerFollowLik
 		msg.Text = "Starting followLikers"
 		msgRes, err := bot.Send(msg)
 		if err == nil {
+			l.Lock()
 			editMessage["followLikers"][int(userID)] = msgRes.MessageID
+			l.Unlock()
 		}
 		innerFollowLikersChan <- target
 	}
