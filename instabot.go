@@ -41,11 +41,14 @@ var (
 	unfollowIsStarted     = abool.New()
 	refollowIsStarted     = abool.New()
 	followLikersIsStarted = abool.New()
+	followQueueIsStarted  = abool.New()
 
-	cronFollow   int
-	cronUnfollow int
-	cronStats    int
-	cronLike     int
+	cronFollow      int
+	cronUnfollow    int
+	cronStats       int
+	cronLike        int
+	cronFollowQueue int
+	cronRefollow    int
 
 	l sync.RWMutex
 )
