@@ -239,6 +239,13 @@ func main() {
 					} else {
 						addWatching(bot, db, args, int64(update.Message.From.ID))
 					}
+				case "delwatch":
+					if args == "" {
+						msg.Text = fmt.Sprintf("/delwatch username")
+						bot.Send(msg)
+					} else {
+						deleteKeyFromBucket(db, "watching", args)
+					}
 				case "watching":
 					sendWatching(bot, db, int64(update.Message.From.ID))
 				case "startfollowqueue":
