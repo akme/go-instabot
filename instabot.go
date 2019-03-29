@@ -235,10 +235,11 @@ func main() {
 				case "watch":
 					watch(bot, db, args, int64(update.Message.From.ID))
 					if args == "" {
-						msg.Text = fmt.Sprintf("/watch username")
+						msg.Text = fmt.Sprintf("/watch add|del|list")
 						bot.Send(msg)
 					} else {
-						addWatching(bot, db, args, int64(update.Message.From.ID))
+						watch(bot, db, args, int64(update.Message.From.ID))
+						//addWatching(bot, db, args, int64(update.Message.From.ID))
 					}
 				case "delwatch":
 					if args == "" {
