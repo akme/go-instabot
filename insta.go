@@ -1489,7 +1489,7 @@ func watch(bot *tgbotapi.BotAPI, db *bolt.DB, args string, userID int64) {
 			msg := tgbotapi.NewMessage(userID, "")
 			deleteKeyFromBucket(db, "watching", argsArray[1])
 			// need to add checks
-			msg.Text = "Removed " + argsArray[1] + "from watching list"
+			msg.Text = "Removed " + argsArray[1] + " from watching list"
 			bot.Send(msg)
 		}
 	}
