@@ -1480,12 +1480,14 @@ func addWatching(bot *tgbotapi.BotAPI, db *bolt.DB, userid string, userID int64)
 func watch(bot *tgbotapi.BotAPI, db *bolt.DB, args string, userID int64) {
 	//msg := tgbotapi.NewMessage(userID, "")
 	argsArray := strings.Fields(args)
-	switch argsArray[0] {
-	case "list":
-		sendWatching(bot, db, userID)
-	case "add":
-		addWatching(bot, db, argsArray[1], userID)
-	case "del":
+	if len(argsArray) > 0 {
+		switch argsArray[0] {
+		case "list":
+			sendWatching(bot, db, userID)
+		case "add":
+			addWatching(bot, db, argsArray[1], userID)
+		case "del":
+		}
 	}
 }
 
