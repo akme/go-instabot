@@ -233,6 +233,7 @@ func main() {
 				case "like":
 					likeFollowersPosts(db)
 				case "watch":
+					watch(bot, db, args, int64(update.Message.From.ID))
 					if args == "" {
 						msg.Text = fmt.Sprintf("/watch username")
 						bot.Send(msg)
