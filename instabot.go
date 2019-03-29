@@ -6,6 +6,7 @@ import (
 	"os"
 	"os/signal"
 	"sync"
+	"syscall"
 	"time"
 
 	"github.com/ad/cron"
@@ -113,7 +114,7 @@ func main() {
 
 	go func() {
 		sigchan := make(chan os.Signal, 10)
-		signal.Notify(sigchan, os.Interrupt)
+		signal.Notify(sigchan, syscall.SIGTERM, syscall.SIGQUIT)
 		<-sigchan
 
 		msg := tgbotapi.NewMessage(int64(reportID), "Stopping...")
@@ -123,24 +124,18 @@ func main() {
 		os.Exit(0)
 	}()
 
-	// read updated
-	for { //update := range updates {
+	for {
 		select {
 		case update := <-updates:
 			if update.EditedMessage != nil {
 				continue
 			}
 
-			// UserName := update.Message.From.UserName
-			// log.Println(UserID)
 			if intInStringSlice(int(update.Message.From.ID), admins) {
-				// ChatID := update.Message.Chat.ID
 
 				text := update.Message.Text
 				command := update.Message.Command()
 				args := update.Message.CommandArguments()
-
-				// log.Printf("[%d] %s, %s, %s", UserID, Text, Command, Args)
 
 				msg := tgbotapi.NewMessage(int64(update.Message.From.ID), "")
 				msg.DisableWebPagePreview = true

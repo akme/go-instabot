@@ -65,7 +65,7 @@ func getStats(db *bolt.DB, id string) (int, error) {
 
 		bs := bk.Get([]byte(id))
 		if bs == nil {
-			return errors.Wrapf(fmt.Errorf("key not found"), "failed to find stats for 's'", id)
+			return errors.Wrapf(fmt.Errorf("key not found"), "failed to find stats for '%s'", id)
 		}
 
 		var err error

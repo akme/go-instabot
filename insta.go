@@ -31,6 +31,8 @@ var insta *goinsta.Instagram
 var usersInfo = make(map[string]response.GetUsernameResponse)
 var tagFeed = make(map[string]response.TagFeedsResponse)
 
+var reportAsString string
+
 // login will try to reload a previous session, and will create a new one if it can't
 func login() {
 	err := reloadSession()
@@ -168,12 +170,11 @@ func followFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				stopChan <- true
 			}()
 		case <-stopChan:
+			telegramResp <- telegramResponse{fmt.Sprintf("\nRefollowed %d users!\n", state["refollow_current"]), "refollow"}
 			l.Lock()
 			editMessage["refollow"] = make(map[int]int)
 			state["refollow"] = -1
 			l.Unlock()
-
-			telegramResp <- telegramResponse{fmt.Sprintf("\nRefollowed %d users!\n", state["refollow_current"]), "refollow"}
 			return
 			//default:
 			//	time.Sleep(100 * time.Millisecond)
@@ -225,7 +226,7 @@ func followLikers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 					if err == nil {
 						test := strings.TrimPrefix(u.Path, "/p/")
 						test = strings.TrimSuffix(test, "/")
-						likers, err := insta.MediaLikers(MediaFromCode(test))
+						likers, err := insta.MediaLikers(mediaFromCode(test))
 						if err != nil {
 							println(err.Error())
 						} else {
@@ -305,12 +306,11 @@ func followLikers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				stopChan <- true
 			}()
 		case <-stopChan:
+			telegramResp <- telegramResponse{fmt.Sprintf("\nfollowed %d users!\n", state["followLikers_current"]), "followLikers"}
 			l.Lock()
 			editMessage["followLikers"] = make(map[int]int)
 			state["followLikers"] = -1
 			l.Unlock()
-
-			telegramResp <- telegramResponse{fmt.Sprintf("\nfollowed %d users!\n", state["followLikers_current"]), "followLikers"}
 			return
 			//default:
 			//	time.Sleep(100 * time.Millisecond)
@@ -489,20 +489,19 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				stopChan <- true
 			}()
 		case <-stopChan:
-			l.Lock()
-			editMessage["unfollow"] = make(map[int]int)
-			state["unfollow"] = -1
-			l.Unlock()
-
 			if state["unfollow_current"] == 0 {
 				telegramResp <- telegramResponse{fmt.Sprintf("No one unfollow"), "unfollow"}
 			} else {
 				telegramResp <- telegramResponse{fmt.Sprintf("\nUnfollowed %d users are not following you back!\n", state["unfollow_current"]), "unfollow"}
-				l.Lock()
-				state["unfollow_current"] = 0
-				state["unfollow_all_count"] = 0
-				l.Unlock()
 			}
+
+			l.Lock()
+			editMessage["unfollow"] = make(map[int]int)
+			state["unfollow_current"] = 0
+			state["unfollow_all_count"] = 0
+			state["unfollow"] = -1
+			l.Unlock()
+
 			return
 			//default:
 			//	time.Sleep(100 * time.Millisecond)
@@ -621,9 +620,8 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 
 							stopChan <- true
 							return
-						} else {
-							insta.UnFollow(user.User.ID)
 						}
+						insta.UnFollow(user.User.ID)
 					}
 				}
 
@@ -689,23 +687,19 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 			elapsed := time.Since(followStartedAt)
 			l.RUnlock()
 
-			telegramResp <- telegramResponse{"Follow finished", "follow"}
+			if reportAsString != "" {
+				reportAsString += fmt.Sprintf("\nFollowing is finished by %s\n", elapsed.Round(time.Second))
+				telegramResp <- telegramResponse{reportAsString, "follow"}
+			} else {
+				telegramResp <- telegramResponse{"Follow finished", "follow"}
+			}
 
 			l.Lock()
 			editMessage["follow"] = make(map[int]int)
 			state["follow"] = -1
 			l.Unlock()
 
-			reportAsString := fmt.Sprintf("Following is finished by %s\n", elapsed.Round(time.Second))
-			// for tag := range report {
-			// 	reportAsString += fmt.Sprintf("#%s: %d 🐾, %d 👍, %d 💌\n", tag, report[tag]["follow"], report[tag]["like"], report[tag]["comment"])
-			// }
-			if reportAsString != "" {
-				telegramResp <- telegramResponse{reportAsString, "follow"}
-			}
 			return
-			//default:
-			//	time.Sleep(100 * time.Millisecond)
 		}
 	}
 }
@@ -805,7 +799,7 @@ func goThrough(tag string, db *bolt.DB, images response.TagFeedsResponse, stopCh
 		follow := numFollowed < followCount && like
 		comment := numCommented < commentCount && like
 
-		var relationshipRatio float64 = 0.0
+		var relationshipRatio float64 // = 0.0
 
 		if followerCount != 0 && followingCount != 0 {
 			relationshipRatio = float64(followingCount) / float64(followerCount)
@@ -1718,7 +1712,8 @@ func bin2int(binStr string) string {
 // Base64UrlCharmap - all posible characters
 const Base64UrlCharmap = "ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789-_"
 
-func MediaFromCode(code string) string {
+// Returns data for url from media codes
+func mediaFromCode(code string) string {
 
 	base2 := ""
 	for i := 0; i < len(code); i++ {
