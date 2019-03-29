@@ -1487,6 +1487,7 @@ func watch(bot *tgbotapi.BotAPI, db *bolt.DB, args string, userID int64) {
 		case "add":
 			addWatching(bot, db, argsArray[1], userID)
 		case "del":
+			deleteKeyFromBucket(db, "watching", argsArray[1])
 		}
 	}
 }

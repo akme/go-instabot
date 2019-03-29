@@ -234,7 +234,7 @@ func main() {
 					likeFollowersPosts(db)
 				case "watch":
 					if args == "" {
-						msg.Text = fmt.Sprintf("/watch add|del|list")
+						msg.Text = fmt.Sprintf("/watch add | del | list")
 						bot.Send(msg)
 					} else {
 						watch(bot, db, args, int64(update.Message.From.ID))
