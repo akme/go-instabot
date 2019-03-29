@@ -1478,7 +1478,6 @@ func addWatching(bot *tgbotapi.BotAPI, db *bolt.DB, userid string, userID int64)
 }
 
 func watch(bot *tgbotapi.BotAPI, db *bolt.DB, args string, userID int64) {
-	//msg := tgbotapi.NewMessage(userID, "")
 	if args != "" {
 		argsArray := strings.Fields(args)
 		switch argsArray[0] {
@@ -1487,7 +1486,11 @@ func watch(bot *tgbotapi.BotAPI, db *bolt.DB, args string, userID int64) {
 		case "add":
 			addWatching(bot, db, argsArray[1], userID)
 		case "del":
+			msg := tgbotapi.NewMessage(userID, "")
 			deleteKeyFromBucket(db, "watching", argsArray[1])
+			// need to add checks
+			msg.Text = "Removed " + argsArray[1] + "from watching list"
+			bot.Send(msg)
 		}
 	}
 }
