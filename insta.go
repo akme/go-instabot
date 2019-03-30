@@ -600,6 +600,7 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				l.Lock()
 				followStartedAt = time.Now()
 				state["follow"] = 0
+				reportAsString = ""
 				l.Unlock()
 
 				time.Sleep(1 * time.Second)
@@ -658,7 +659,7 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 						numLiked = 0
 						numCommented = 0
 
-						reportAsString := fmt.Sprintf("\n[%d/%d] ➜ Current tag is %s (%d%%)", state["follow_current"], state["follow_all_count"], tag, state["follow"])
+						reportAsString = fmt.Sprintf("\n[%d/%d] ➜ Current tag is %s (%d%%)", state["follow_current"], state["follow_all_count"], tag, state["follow"])
 						if current > 1 {
 							l.RLock()
 							elapsed := time.Since(followStartedAt)
@@ -697,6 +698,7 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 			l.Lock()
 			editMessage["follow"] = make(map[int]int)
 			state["follow"] = -1
+			reportAsString = ""
 			l.Unlock()
 
 			return
