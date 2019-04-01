@@ -170,7 +170,8 @@ func followFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				stopChan <- true
 			}()
 		case <-stopChan:
-			telegramResp <- telegramResponse{fmt.Sprintf("\nRefollowed %d users!\n", state["refollow_current"]), "refollow"}
+			telegramResp <- telegramResponse{fmt.Sprintf("\nRefollowed %d users!", state["refollow_current"]), "refollow"}
+
 			l.Lock()
 			editMessage["refollow"] = make(map[int]int)
 			state["refollow"] = -1
@@ -306,7 +307,8 @@ func followLikers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				stopChan <- true
 			}()
 		case <-stopChan:
-			telegramResp <- telegramResponse{fmt.Sprintf("\nfollowed %d users!\n", state["followLikers_current"]), "followLikers"}
+			telegramResp <- telegramResponse{fmt.Sprintf("\nfollowed %d users!", state["followLikers_current"]), "followLikers"}
+
 			l.Lock()
 			editMessage["followLikers"] = make(map[int]int)
 			state["followLikers"] = -1
@@ -492,7 +494,7 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 			if state["unfollow_current"] == 0 {
 				telegramResp <- telegramResponse{fmt.Sprintf("No one unfollow"), "unfollow"}
 			} else {
-				telegramResp <- telegramResponse{fmt.Sprintf("\nUnfollowed %d users are not following you back!\n", state["unfollow_current"]), "unfollow"}
+				telegramResp <- telegramResponse{fmt.Sprintf("\nUnfollowed %d users are not following you back!", state["unfollow_current"]), "unfollow"}
 			}
 
 			l.Lock()
@@ -689,11 +691,12 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 			l.RUnlock()
 
 			if reportAsString != "" {
-				reportAsString += fmt.Sprintf("\nFollowing is finished by %s\n", elapsed.Round(time.Second))
-				telegramResp <- telegramResponse{reportAsString, "follow"}
+				reportAsString += fmt.Sprintf("\nFollowing is finished by %s", elapsed.Round(time.Second))
 			} else {
-				telegramResp <- telegramResponse{"Follow finished", "follow"}
+				reportAsString = "Follow finished"
 			}
+
+			telegramResp <- telegramResponse{reportAsString, "follow"}
 
 			l.Lock()
 			editMessage["follow"] = make(map[int]int)
