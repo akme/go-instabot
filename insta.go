@@ -498,7 +498,6 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 			}
 
 			l.Lock()
-			editMessage["unfollow"] = make(map[int]int)
 			state["unfollow_current"] = 0
 			state["unfollow_all_count"] = 0
 			state["unfollow"] = -1
@@ -642,7 +641,7 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 						current++
 
 						l.Lock()
-						state["follow"] = int((current - 1) * 100 / allCount)
+						state["follow"] = int(current * 100 / allCount)
 						state["follow_current"] = current
 						state["follow_all_count"] = allCount
 						l.Unlock()
@@ -661,7 +660,7 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 						numLiked = 0
 						numCommented = 0
 
-						reportAsString = fmt.Sprintf("\n[%d/%d] ➜ Current tag is %s (%d%%)", state["follow_current"], state["follow_all_count"], tag, state["follow"])
+						reportAsString = fmt.Sprintf("[%d/%d] %d%%", state["follow_current"], state["follow_all_count"], state["follow"])
 						if current > 1 {
 							l.RLock()
 							elapsed := time.Since(followStartedAt)
@@ -674,8 +673,24 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 						for tag := range report {
 							reportAsString += fmt.Sprintf("\n#%s: %d 🐾, %d 👍, %d 💌", tag, report[tag]["follow"], report[tag]["like"], report[tag]["comment"])
 						}
+
+						reportAsString += fmt.Sprintf("\n#%s: ...", tag)
+
 						telegramResp <- telegramResponse{reportAsString, "follow"}
 						browse(tag, db, stopChan)
+
+						l.Lock()
+						state["follow"] = int((current + 1) * 100 / allCount)
+						state["follow_current"] = (current + 1)
+						state["follow_all_count"] = allCount
+						l.Unlock()
+
+						reportAsString = fmt.Sprintf("[%d/%d] %d%%", state["follow_current"], state["follow_all_count"], state["follow"])
+						for tag := range report {
+							reportAsString += fmt.Sprintf("\n#%s: %d 🐾, %d 👍, %d 💌", tag, report[tag]["follow"], report[tag]["like"], report[tag]["comment"])
+						}
+						telegramResp <- telegramResponse{reportAsString, "follow"}
+
 						if current != allCount {
 							time.Sleep(10 * time.Second)
 						}
@@ -691,7 +706,7 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 			l.RUnlock()
 
 			if reportAsString != "" {
-				reportAsString += fmt.Sprintf("\nFollowing is finished by %s", elapsed.Round(time.Second))
+				reportAsString += fmt.Sprintf("\n\nFollowing is finished by %s", elapsed.Round(time.Second))
 			} else {
 				reportAsString = "Follow finished"
 			}
@@ -699,7 +714,6 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 			telegramResp <- telegramResponse{reportAsString, "follow"}
 
 			l.Lock()
-			editMessage["follow"] = make(map[int]int)
 			state["follow"] = -1
 			reportAsString = ""
 			l.Unlock()
@@ -997,7 +1011,12 @@ func startFollow(bot *tgbotapi.BotAPI, startChan chan bool, userID int64) {
 			}
 		}
 	} else {
+		l.Lock()
+		editMessage["follow"] = make(map[int]int)
+		l.Unlock()
+
 		startChan <- true
+
 		msg.Text = "Starting follow"
 		msgRes, err := bot.Send(msg)
 		if err == nil {
@@ -1039,7 +1058,12 @@ func startUnfollow(bot *tgbotapi.BotAPI, startChan chan bool, userID int64) {
 			}
 		}
 	} else {
+		l.Lock()
+		editMessage["unfollow"] = make(map[int]int)
+		l.Unlock()
+
 		startChan <- true
+
 		msg.Text = "Starting unfollow"
 		fmt.Println(msg.Text)
 		msgRes, err := bot.Send(msg)
