@@ -638,6 +638,11 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 							return
 						}
 
+						report[tag] = make(map[string]int)
+						report[tag]["like"] = 0
+						report[tag]["follow"] = 0
+						report[tag]["comment"] = 0
+
 						current++
 
 						l.Lock()
@@ -670,8 +675,14 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 							reportAsString += fmt.Sprintf(" ~%s", duration.Round(time.Second))
 						}
 
-						for tag := range report {
-							reportAsString += fmt.Sprintf("\n#%s: %d 🐾, %d 👍, %d 💌", tag, report[tag]["follow"], report[tag]["like"], report[tag]["comment"])
+						for tagItem := range report {
+							if tagItem != tag {
+								if report[tagItem]["like"] > 0 || report[tagItem]["follow"] > 0 || report[tagItem]["comment"] > 0 {
+									reportAsString += fmt.Sprintf("\n#%s: %d 🐾, %d 👍, %d 💌", tagItem, report[tagItem]["follow"], report[tagItem]["like"], report[tagItem]["comment"])
+								} else {
+									reportAsString += fmt.Sprintf("\n#%s: no actions, possibly not enough images", tagItem)
+								}
+							}
 						}
 
 						reportAsString += fmt.Sprintf("\n#%s: ...", tag)
@@ -679,16 +690,19 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 						telegramResp <- telegramResponse{reportAsString, "follow"}
 						browse(tag, db, stopChan)
 
-						l.Lock()
-						state["follow"] = int((current + 1) * 100 / allCount)
-						state["follow_current"] = (current + 1)
-						state["follow_all_count"] = allCount
-						l.Unlock()
-
 						reportAsString = fmt.Sprintf("[%d/%d] %d%%", state["follow_current"], state["follow_all_count"], state["follow"])
 						for tag := range report {
-							reportAsString += fmt.Sprintf("\n#%s: %d 🐾, %d 👍, %d 💌", tag, report[tag]["follow"], report[tag]["like"], report[tag]["comment"])
+							if report[tag]["like"] > 0 || report[tag]["follow"] > 0 || report[tag]["comment"] > 0 {
+								reportAsString += fmt.Sprintf("\n#%s: %d 🐾, %d 👍, %d 💌", tag, report[tag]["follow"], report[tag]["like"], report[tag]["comment"])
+							} else {
+								reportAsString += fmt.Sprintf("\n#%s: no actions, possibly not enough images", tag)
+							}
 						}
+
+						if current != allCount {
+							reportAsString += fmt.Sprintf("\n... sleep %d seconds", 10)
+						}
+
 						telegramResp <- telegramResponse{reportAsString, "follow"}
 
 						if current != allCount {
@@ -905,6 +919,7 @@ func goThrough(tag string, db *bolt.DB, images response.TagFeedsResponse, stopCh
 // Likes an image, if not liked already
 func likeImage(tag string, db *bolt.DB, image response.MediaItemResponse, userInfo response.GetUsernameResponse) {
 	log.Println("Liking the picture https://www.instagram.com/p/" + image.Code)
+
 	if !image.HasLiked {
 		if !*dev {
 			insta.Like(image.ID)
@@ -912,9 +927,6 @@ func likeImage(tag string, db *bolt.DB, image response.MediaItemResponse, userIn
 		// log.Println("Liked")
 		numLiked++
 
-		if _, ok := report[tag]; !ok {
-			report[tag] = make(map[string]int)
-		}
 		report[tag]["like"]++
 		incStats(db, "like")
 		likesToAccountPerSession[userInfo.User.Username]++
@@ -925,7 +937,7 @@ func likeImage(tag string, db *bolt.DB, image response.MediaItemResponse, userIn
 
 // Comments an image
 func commentImage(tag string, db *bolt.DB, image response.MediaItemResponse) {
-	rand.Seed(time.Now().Unix())
+	// rand.Seed(time.Now().Unix())
 	text := commentsList[rand.Intn(len(commentsList))]
 	if !*dev {
 		insta.Comment(image.ID, text)
@@ -933,9 +945,6 @@ func commentImage(tag string, db *bolt.DB, image response.MediaItemResponse) {
 	log.Println("Commented " + text)
 	numCommented++
 
-	if _, ok := report[tag]; !ok {
-		report[tag] = make(map[string]int)
-	}
 	report[tag]["comment"]++
 	incStats(db, "comment")
 }
@@ -943,12 +952,10 @@ func commentImage(tag string, db *bolt.DB, image response.MediaItemResponse) {
 // Follows a user, if not following already
 func followUser(tag string, db *bolt.DB, userInfo response.GetUsernameResponse) {
 	user := userInfo.User
-
 	userFriendShip, err := insta.UserFriendShip(user.ID)
 	check(err)
 	// If not following already
 	if !userFriendShip.Following {
-
 		if !*dev {
 			if user.IsPrivate {
 				log.Printf("%s is private, skipping follow\n", user.Username)
@@ -969,9 +976,6 @@ func followUser(tag string, db *bolt.DB, userInfo response.GetUsernameResponse) 
 		// log.Println("Followed")
 		if userFriendShip.Following {
 			numFollowed++
-			if _, ok := report[tag]; !ok {
-				report[tag] = make(map[string]int)
-			}
 			report[tag]["follow"]++
 			incStats(db, "follow")
 			setFollowed(db, user.Username)
