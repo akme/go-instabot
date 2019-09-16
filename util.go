@@ -14,13 +14,15 @@ import (
 	"time"
 
 	"github.com/spf13/viper"
-	"github.com/tducasse/goinsta/response"
+
+	"github.com/ahmdrz/goinsta/v2"
 
 	tgbotapi "gopkg.in/telegram-bot-api.v4"
 )
 
 // Whether we are in development mode or not
 var dev *bool
+var configFile *string
 
 // An image will be liked if the poster has more followers than likeLowerLimit, and less than likeUpperLimit
 var likeLowerLimit int
@@ -72,6 +74,7 @@ func check(err error) {
 // Parses the options given to the script
 func parseOptions() {
 	dev = flag.Bool("dev", false, "Use this option to use the script in development mode : nothing will be done for real")
+	configFile = flag.String("config", "config/config.json", "Path to config file")
 	logs := flag.Bool("logs", false, "Use this option to enable the logfile")
 
 	flag.Parse()
@@ -92,11 +95,7 @@ func parseOptions() {
 
 // Gets the conf in the config file
 func getConfig() {
-	folder := "config"
-	if *dev {
-		folder = "local"
-	}
-	viper.SetConfigFile(folder + "/config.json")
+	viper.SetConfigFile(*configFile)
 
 	// Reads the config file
 	if err := viper.ReadInConfig(); err != nil {
@@ -132,8 +131,14 @@ func getConfig() {
 	admins = viper.GetStringSlice("user.telegram.admins")
 
 	telegramToken = viper.GetString("user.telegram.token")
+	telegramProxy = viper.GetString("user.telegram.proxy")
+	telegramProxyPort = viper.GetInt32("user.telegram.proxy_port")
+	telegramProxyUser = viper.GetString("user.telegram.proxy_user")
+	telegramProxyPassword = viper.GetString("user.telegram.proxy_password")
+
 	instaUsername = viper.GetString("user.instagram.username")
 	instaPassword = viper.GetString("user.instagram.password")
+	instaProxy = viper.GetString("user.instagram.proxy")
 
 	report = make(map[string]map[string]int)
 }
@@ -236,9 +241,9 @@ func getInput(text string) string {
 }
 
 // Checks if the user is in the slice
-func contains(slice []response.User, user response.User) bool {
+func contains(slice []goinsta.User, user goinsta.User) bool {
 	for index := range slice {
-		if user == slice[index] {
+		if user.ID == slice[index].ID {
 			return true
 		}
 	}

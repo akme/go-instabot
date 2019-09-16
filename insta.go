@@ -1,23 +1,20 @@
 package main
 
 import (
-	"errors"
+	// "errors"
 	"fmt"
-	"io/ioutil"
+	// "io/ioutil"
 	"log"
 	"math"
 	"math/rand"
+	"net/http"
 	"net/url"
-	"os"
+	// "os"
 	"strconv"
 	"strings"
 	"time"
 
 	"github.com/ad/cron"
-
-	"github.com/tducasse/goinsta"
-	"github.com/tducasse/goinsta/response"
-	"github.com/tducasse/goinsta/store"
 
 	"github.com/boltdb/bolt"
 	"github.com/spf13/viper"
@@ -28,18 +25,10 @@ import (
 // Insta is a goinsta.Instagram instance
 var insta *goinsta.Instagram
 
-var usersInfo = make(map[string]response.GetUsernameResponse)
-var tagFeed = make(map[string]response.TagFeedsResponse)
+var usersInfo = make(map[string]goinsta.User)
+var tagFeed = make(map[string]goinsta.Item)
 
 var reportAsString string
-
-// login will try to reload a previous session, and will create a new one if it can't
-func login() {
-	err := reloadSession()
-	if err != nil {
-		createAndSaveSession()
-	}
-}
 
 func refollowManager(db *bolt.DB) (startChan chan bool, outerChan, innerChan chan string, stopChan chan bool) {
 	startChan = make(chan bool)
@@ -80,94 +69,96 @@ func followFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 
 				time.Sleep(1 * time.Second)
 				username := msg
-				user, err := insta.GetUserByUsername(username)
+				user, err := insta.Profiles.ByName(username)
 				if err != nil {
 					telegramResp <- telegramResponse{fmt.Sprintf("%s", err), "refollow"}
 					stopChan <- true
 					return
 				}
 
-				if user.User.IsPrivate {
-					userFriendShip, err := insta.UserFriendShip(user.User.ID)
-					check(err)
-					if !userFriendShip.Following {
+				if user.IsPrivate {
+					// userFriendShip, err := insta.UserFriendShip(user.User.ID)
+					// check(err)
+					if !user.Friendship.Following {
 						telegramResp <- telegramResponse{"User profile is private and we are not following, can't process", "refollow"}
 						stopChan <- true
 						return
 					}
 				}
 
-				followers, err := insta.TotalUserFollowers(user.User.ID)
-				//log.Println(followers)
-				check(err)
-				var users = followers.Users
-				if len(users) > 0 {
-					rand.Seed(time.Now().UnixNano()) // do it once during app initialization
-					shuffle(users)
-				}
+				followers := user.Following()
+				for followers.Next() {
+					users := followers.Users
 
-				var limit = viper.GetInt("limits.maxSync")
-				if limit <= 0 || limit >= 1000 {
-					limit = 1000
-				}
+					if len(users) > 0 {
+						rand.Seed(time.Now().UnixNano()) // do it once during app initialization
+						shuffle(users)
+					}
 
-				today, _ := getStats(db, "refollow")
-				if today > 0 {
-					limit = limit - today
-				}
+					var limit = viper.GetInt("limits.maxSync")
+					if limit <= 0 || limit >= 1000 {
+						limit = 1000
+					}
 
-				var allCount = int(math.Min(float64(len(users)), float64(limit)))
-				switch {
-				case allCount == 0 && len(users) > 0:
-					telegramResp <- telegramResponse{"Follow limit reached :(", "refollow"}
-				case allCount <= 0:
-					telegramResp <- telegramResponse{"Followers not found :(", "refollow"}
-				default:
-					var current = 0
+					today, _ := getStats(db, "refollow")
+					if today > 0 {
+						limit = limit - today
+					}
 
-					telegramResp <- telegramResponse{fmt.Sprintf("%d users will be followed", allCount), "refollow"}
+					var allCount = int(math.Min(float64(len(users)), float64(limit)))
+					switch {
+					case allCount == 0 && len(users) > 0:
+						telegramResp <- telegramResponse{"Follow limit reached :(", "refollow"}
+					case allCount <= 0:
+						telegramResp <- telegramResponse{"Followers not found :(", "refollow"}
+					default:
+						var current = 0
 
-					for index := range users {
-						if !refollowIsStarted.IsSet() {
-							stopChan <- true
-							return
-						}
-						if current >= limit {
-							continue
-						}
+						telegramResp <- telegramResponse{fmt.Sprintf("%d users will be followed", allCount), "refollow"}
 
-						if users[index].IsPrivate {
-							log.Printf("%s is private, skipping\n", users[index].Username)
-						} else {
-							previoslyFollowed, _ := getFollowed(db, users[index].Username)
-							if previoslyFollowed != "" {
-								log.Printf("%s previously followed at %s, skipping\n", users[index].Username, previoslyFollowed)
+						for index := range users {
+							if !refollowIsStarted.IsSet() {
+								stopChan <- true
+								return
+							}
+							if current >= limit {
+								continue
+							}
+
+							if users[index].IsPrivate {
+								log.Printf("%s is private, skipping\n", users[index].Username)
 							} else {
-								current++
-
-								l.Lock()
-								state["refollow"] = int(current * 100 / allCount)
-								state["refollow_current"] = current
-								state["refollow_all_count"] = allCount
-								l.Unlock()
-
-								text := fmt.Sprintf("[%d/%d] refollowing %s (%d%%)", state["refollow_current"], state["refollow_all_count"], users[index].Username, state["refollow"])
-								telegramResp <- telegramResponse{text, "refollow"}
-
-								if !*dev {
-									insta.Follow(users[index].ID)
-									setFollowed(db, users[index].Username)
-									incStats(db, "follow")
-									incStats(db, "refollow")
-									time.Sleep(16 * time.Second)
+								previoslyFollowed, _ := getFollowed(db, users[index].Username)
+								if previoslyFollowed != "" {
+									log.Printf("%s previously followed at %s, skipping\n", users[index].Username, previoslyFollowed)
 								} else {
-									time.Sleep(2 * time.Second)
+									current++
+
+									l.Lock()
+									state["refollow"] = int(current * 100 / allCount)
+									state["refollow_current"] = current
+									state["refollow_all_count"] = allCount
+									l.Unlock()
+
+									text := fmt.Sprintf("[%d/%d] refollowing %s (%d%%)", state["refollow_current"], state["refollow_all_count"], users[index].Username, state["refollow"])
+									telegramResp <- telegramResponse{text, "refollow"}
+
+									if !*dev {
+										users[index].Follow()
+										// insta.Follow(users[index].ID)
+										setFollowed(db, users[index].Username)
+										incStats(db, "follow")
+										incStats(db, "refollow")
+										time.Sleep(16 * time.Second)
+									} else {
+										time.Sleep(2 * time.Second)
+									}
 								}
 							}
 						}
 					}
+					stopChan <- true
 				}
-				stopChan <- true
 			}()
 		case <-stopChan:
 			telegramResp <- telegramResponse{fmt.Sprintf("\nRefollowed %d users!", state["refollow_current"]), "refollow"}
@@ -227,79 +218,86 @@ func followLikers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 					if err == nil {
 						test := strings.TrimPrefix(u.Path, "/p/")
 						test = strings.TrimSuffix(test, "/")
-						likers, err := insta.MediaLikers(mediaFromCode(test))
+
+						mediaID, err := goinsta.MediaIDFromShortID(test)
 						if err != nil {
-							println(err.Error())
+							fmt.Println(err)
 						} else {
-							users := likers.Users
-							if len(users) > 0 {
-								println(fmt.Sprintf("found %d likers", len(users)))
-								rand.Seed(time.Now().UnixNano()) // do it once during app initialization
-								shuffle(users)
+							media, err := insta.GetMedia(mediaID)
+							if err != nil {
+								fmt.Println(err)
+							} else {
+								users := media.Items[0].Likers
+								if len(users) > 0 {
+									println(fmt.Sprintf("found %d likers", len(users)))
+									rand.Seed(time.Now().UnixNano()) // do it once during app initialization
+									shuffle(users)
 
-								var limit = viper.GetInt("limits.maxSync")
-								if limit <= 0 || limit >= 1000 {
-									limit = 1000
-								}
+									var limit = viper.GetInt("limits.maxSync")
+									if limit <= 0 || limit >= 1000 {
+										limit = 1000
+									}
 
-								today, _ := getStats(db, "followLikers")
-								if today > 0 {
-									limit = limit - today
-								}
+									today, _ := getStats(db, "followLikers")
+									if today > 0 {
+										limit = limit - today
+									}
 
-								var allCount = int(math.Min(float64(len(users)), float64(limit)))
-								switch {
-								case allCount == 0 && len(users) > 0:
-									telegramResp <- telegramResponse{"Follow limit reached :(", "followLikers"}
-								case allCount <= 0:
-									telegramResp <- telegramResponse{"Likers not found :(", "followLikers"}
-								default:
-									var current = 0
+									var allCount = int(math.Min(float64(len(users)), float64(limit)))
+									switch {
+									case allCount == 0 && len(users) > 0:
+										telegramResp <- telegramResponse{"Follow limit reached :(", "followLikers"}
+									case allCount <= 0:
+										telegramResp <- telegramResponse{"Likers not found :(", "followLikers"}
+									default:
+										var current = 0
 
-									telegramResp <- telegramResponse{fmt.Sprintf("%d users will be followed", allCount), "followLikers"}
+										telegramResp <- telegramResponse{fmt.Sprintf("%d users will be followed", allCount), "followLikers"}
 
-									for index := range users {
-										if !followLikersIsStarted.IsSet() {
-											stopChan <- true
-											return
-										}
-										if current >= limit {
-											continue
-										}
+										for index := range users {
+											if !followLikersIsStarted.IsSet() {
+												stopChan <- true
+												return
+											}
+											if current >= limit {
+												continue
+											}
 
-										if users[index].IsPrivate {
-											log.Printf("%s is private, skipping\n", users[index].Username)
-										} else {
-											previoslyFollowed, _ := getFollowed(db, users[index].Username)
-											if previoslyFollowed != "" {
-												log.Printf("%s previously followed at %s, skipping\n", users[index].Username, previoslyFollowed)
+											if users[index].IsPrivate {
+												log.Printf("%s is private, skipping\n", users[index].Username)
 											} else {
-												current++
-
-												l.Lock()
-												state["followLikers"] = int(current * 100 / allCount)
-												state["followLikers_current"] = current
-												state["followLikers_all_count"] = allCount
-												l.Unlock()
-
-												text := fmt.Sprintf("[%d/%d] following %s (%d%%)", state["followLikers_current"], state["followLikers_all_count"], users[index].Username, state["followLikers"])
-												telegramResp <- telegramResponse{text, "followLikers"}
-
-												if !*dev {
-													insta.Follow(users[index].ID)
-													setFollowed(db, users[index].Username)
-													incStats(db, "follow")
-													incStats(db, "followLikers")
-													time.Sleep(16 * time.Second)
+												previoslyFollowed, _ := getFollowed(db, users[index].Username)
+												if previoslyFollowed != "" {
+													log.Printf("%s previously followed at %s, skipping\n", users[index].Username, previoslyFollowed)
 												} else {
-													time.Sleep(2 * time.Second)
+													current++
+
+													l.Lock()
+													state["followLikers"] = int(current * 100 / allCount)
+													state["followLikers_current"] = current
+													state["followLikers_all_count"] = allCount
+													l.Unlock()
+
+													text := fmt.Sprintf("[%d/%d] following %s (%d%%)", state["followLikers_current"], state["followLikers_all_count"], users[index].Username, state["followLikers"])
+													telegramResp <- telegramResponse{text, "followLikers"}
+
+													if !*dev {
+														users[index].Follow()
+														// insta.Follow(users[index].ID)
+														setFollowed(db, users[index].Username)
+														incStats(db, "follow")
+														incStats(db, "followLikers")
+														time.Sleep(16 * time.Second)
+													} else {
+														time.Sleep(2 * time.Second)
+													}
 												}
 											}
 										}
 									}
+								} else {
+									println("likers not found")
 								}
-							} else {
-								println("likers not found")
 							}
 						}
 					}
@@ -348,6 +346,9 @@ func unfollowManager(db *bolt.DB) (startChan chan bool, outerChan, innerChan cha
 
 func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 	defer unfollowIsStarted.UnSet()
+
+	resultError := ""
+
 	for {
 		select {
 		case msg := <-innerChan:
@@ -368,20 +369,65 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 					return
 				}
 
-				following, _ := insta.SelfTotalUserFollowing()
-				// check(err)
-				followers, _ := insta.SelfTotalUserFollowers()
-				// check(err)
+				telegramResp <- telegramResponse{fmt.Sprintf("Preparing to unfollow, receiving following users"), "unfollow"}
+
+				user, err := insta.Profiles.ByName(insta.Account.Username)
+				if err != nil {
+					log.Println(err)
+				}
+
+				following := make([]goinsta.User, 0)
+				usersFollowing := user.Following()
+				for usersFollowing.Next() {
+					for _, user := range usersFollowing.Users {
+						following = append(following, user)
+					}
+				}
+
+				// following := user.Following() // . TotalUserFollowers(user.ID)
+				// if err != nil {
+				// 	fmt.Println(err)
+				// 	return
+				// }
+
+				// following, err := insta.SelfTotalUserFollowing()
+				// if err != nil {
+				// 	fmt.Println(err)
+				// }
+
+				telegramResp <- telegramResponse{fmt.Sprintf("Preparing to unfollow, receiving followers (%d)", len(following)), "unfollow"}
+				time.Sleep(30 * time.Second)
+
+				followers := make([]goinsta.User, 0)
+				usersFollowers := user.Followers()
+				for usersFollowers.Next() {
+					for _, user := range usersFollowers.Users {
+						followers = append(followers, user)
+					}
+				}
+				// followers := user.Followers() //insta.SelfTotalUserFollowers()
+				// if err != nil {
+				// 	fmt.Println(err)
+				// }
+
+				telegramResp <- telegramResponse{fmt.Sprintf("Preparing to unfollow, checking delay before unfollowed (%d/%d)", len(following), len(followers)), "unfollow"}
+				time.Sleep(30 * time.Second)
 
 				var daysBeforeUnfollow = viper.GetInt("limits.days_before_unfollow")
 				if daysBeforeUnfollow <= 0 || daysBeforeUnfollow >= 30 {
 					daysBeforeUnfollow = 3
 				}
 
-				var users []response.User
-				for index := range following.Users {
-					if !contains(followers.Users, following.Users[index]) {
-						previoslyFollowed, _ := getFollowed(db, following.Users[index].Username)
+				// type User struct {
+				// 	ID         int64  `json:"pk"`
+				// 	Username   string `json:"username"`
+				// 	ProfilePic string `json:"profile_pic"`
+				// }
+
+				var users []goinsta.User
+				for index := range following {
+					if !contains(followers, following[index]) {
+						previoslyFollowed, _ := getFollowed(db, following[index].Username)
 						if previoslyFollowed != "" {
 							t, err := time.Parse("20060102", previoslyFollowed)
 
@@ -390,26 +436,29 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 							} else {
 								duration := time.Since(t)
 								if int(duration.Hours()) < (24 * daysBeforeUnfollow) {
-									fmt.Printf("%s not followed us less then %f hours, skipping!\n", following.Users[index].Username, duration.Hours())
+									fmt.Printf("%s not followed us less then %f hours, skipping!\n", following[index].Username, duration.Hours())
 									continue
 								} else {
-									users = append(users, following.Users[index])
+									users = append(users, following[index])
 								}
 							}
 						} else {
-							users = append(users, following.Users[index])
+							users = append(users, following[index])
 						}
 					}
 				}
 
+				telegramResp <- telegramResponse{fmt.Sprintf("Preparing to unfollow, checking last likers (%d)", len(users)), "unfollow"}
+				time.Sleep(30 * time.Second)
+
 				lastLikers := getLastLikers()
 				if len(lastLikers) > 0 {
-					if len(following.Users) > 0 {
-						telegramResp <- telegramResponse{fmt.Sprintf("Found %d following, %d likers for last 10 posts\n", len(following.Users), len(lastLikers)), "unfollow"}
-						var notLikers []response.User
-						for index := range following.Users {
-							if !stringInStringSlice(following.Users[index].Username, lastLikers) {
-								notLikers = append(notLikers, following.Users[index])
+					if len(following) > 0 {
+						telegramResp <- telegramResponse{fmt.Sprintf("Found %d following, %d likers for last 10 posts\n", len(following), len(lastLikers)), "unfollow"}
+						var notLikers []goinsta.User
+						for index := range following {
+							if !stringInStringSlice(following[index].Username, lastLikers) {
+								notLikers = append(notLikers, following[index])
 							}
 						}
 
@@ -441,7 +490,10 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 					}
 				}
 
-				if limit <= 0 {
+				telegramResp <- telegramResponse{fmt.Sprintf("Preparing to unfollow (%d)", len(users)), "unfollow"}
+				time.Sleep(30 * time.Second)
+
+				if limit <= 0 || limit >= 1000 {
 					limit = 1000
 				}
 
@@ -478,10 +530,26 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 
 						telegramResp <- telegramResponse{fmt.Sprintf("[%d/%d] Unfollowing %s (%d%%)\n", state["unfollow_current"], state["unfollow_all_count"], users[index].Username, state["unfollow"]), "unfollow"}
 						if !*dev {
-							insta.UnFollow(users[index].ID)
-							setFollowed(db, users[index].Username)
-							incStats(db, "unfollow")
-							time.Sleep(16 * time.Second)
+							err := users[index].Unfollow() //insta.UnFollow(users[index].ID)
+							if err != nil {
+								// fmt.Println(err.Error())
+								if err.Error() == "fail: feedback_required ()" {
+									resultError = "/unfollow stopped: feedback_required"
+									l.Lock()
+									state["unfollow_current"]--
+									l.Unlock()
+									// telegramResp <- telegramResponse{fmt.Sprintf(), "unfollow"}
+									break
+								} else {
+									fmt.Printf("can't unfollow %s (error: %s)", users[index].Username, err)
+									time.Sleep(60 * time.Second)
+								}
+							} else {
+								setFollowed(db, users[index].Username)
+								incStats(db, "unfollow")
+
+								time.Sleep(30 * time.Second)
+							}
 						} else {
 							time.Sleep(2 * time.Second)
 						}
@@ -491,10 +559,15 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 				stopChan <- true
 			}()
 		case <-stopChan:
-			if state["unfollow_current"] == 0 {
-				telegramResp <- telegramResponse{fmt.Sprintf("No one unfollow"), "unfollow"}
+
+			if resultError != "" {
+				telegramResp <- telegramResponse{fmt.Sprintf("\nUnfollowed %d users are not following you back!\n%s", state["unfollow_current"], resultError), "unfollow"}
 			} else {
-				telegramResp <- telegramResponse{fmt.Sprintf("\nUnfollowed %d users are not following you back!", state["unfollow_current"]), "unfollow"}
+				if state["unfollow_current"] == 0 {
+					telegramResp <- telegramResponse{fmt.Sprintf("No one was unfollowed"), "unfollow"}
+				} else {
+					telegramResp <- telegramResponse{fmt.Sprintf("\nUnfollowed %d users are not following you back!", state["unfollow_current"]), "unfollow"}
+				}
 			}
 
 			l.Lock()
@@ -511,52 +584,85 @@ func syncFollowers(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 }
 
 // Logins and saves the session
-func createAndSaveSession() {
+func createAndSaveSession() error {
 	insta = goinsta.New(instaUsername, instaPassword)
-	err := insta.Login()
-	check(err)
+	if instaProxy != "" {
+		insta.SetProxy(instaProxy, false)
+	}
 
-	key := createKey()
-	bytes, err := store.Export(insta, key)
-	check(err)
-	err = ioutil.WriteFile("session", bytes, 0644)
-	check(err)
-	log.Println("Created and saved the session")
+	err := insta.Login()
+
+	if err == nil {
+		log.Println("Logged in as", insta.Account.Username)
+		err := insta.Export(".goinsta")
+		if err != nil {
+			log.Println("EXPORT Login", err)
+			// return err
+		}
+		return nil
+
+		// // key := createKey()
+		// bytes, err := store.Export(insta, key)
+		// if err == nil {
+		// 	err = ioutil.WriteFile("session", bytes, 0644)
+		// 	if err == nil {
+		// 		log.Println("Created and saved the session")
+		// 		return nil
+		// 	}
+		// }
+	}
+
+	return err
+}
+
+// login will try to reload a previous session, and will create a new one if it can't
+func login() {
+	err := reloadSession()
+	if err != nil {
+		err = createAndSaveSession()
+	}
 }
 
 // reloadSession will attempt to recover a previous session
 func reloadSession() error {
-	if _, err := os.Stat("session"); os.IsNotExist(err) {
-		return errors.New("No session found")
-	}
-
-	session, err := ioutil.ReadFile("session")
-	check(err)
-	log.Println("A session file exists")
-
-	key, err := ioutil.ReadFile("key")
-	check(err)
-
-	insta, err = store.Import(session, key)
+	// if _, err := os.Stat("session"); os.IsNotExist(err) {
+	// 	return errors.New("No session found")
+	// }
+	var err error
+	insta, err = goinsta.Import(".goinsta")
 	if err != nil {
-		return errors.New("Couldn't recover the session")
+		log.Println("ReLogin", err)
+		return err
 	}
 
-	log.Println("Successfully logged in")
+	log.Println("ReLogged in as", insta.Account.Username)
+
+	// session, err := ioutil.ReadFile("session")
+	// check(err)
+	// log.Println("A session file exists")
+
+	// key, err := ioutil.ReadFile("key")
+	// check(err)
+
+	// insta, err = store.Import(session, key)
+	// if err != nil {
+	// 	return errors.New("Couldn't recover the session")
+	// }
+
+	// log.Println("Successfully logged in")
 	return nil
-
 }
 
-// createKey creates a key and saves it to file
-func createKey() []byte {
-	key := make([]byte, 32)
-	_, err := rand.Read(key)
-	check(err)
-	err = ioutil.WriteFile("key", key, 0644)
-	check(err)
-	log.Println("Created and saved the key")
-	return key
-}
+// // createKey creates a key and saves it to file
+// func createKey() []byte {
+// 	key := make([]byte, 32)
+// 	_, err := rand.Read(key)
+// 	check(err)
+// 	err = ioutil.WriteFile("key", key, 0644)
+// 	check(err)
+// 	log.Println("Created and saved the key")
+// 	return key
+// }
 
 func followManager(db *bolt.DB) (startChan chan bool, outerChan, innerChan chan string, stopChan chan bool) {
 	startChan = make(chan bool)
@@ -586,8 +692,8 @@ func followManager(db *bolt.DB) (startChan chan bool, outerChan, innerChan chan 
 
 // Go through all the tags in the list
 func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
-	usersInfo = make(map[string]response.GetUsernameResponse)
-	tagFeed = make(map[string]response.TagFeedsResponse)
+	usersInfo = make(map[string]goinsta.User)
+	tagFeed = make(map[string]goinsta.Item)
 
 	followStartedAt := time.Now()
 
@@ -611,19 +717,24 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 
 				followTestUsername := viper.GetString("user.instagram.follow_test_username")
 				if followTestUsername != "" {
-					user, err := insta.GetUserByUsername(followTestUsername)
+					user, err := insta.Profiles.ByName(followTestUsername)
+					// user.Sync()
+					// user, err := insta.GetUserByUsername(followTestUsername)
 					if err != nil {
-						log.Println("test instagram username not found")
+						log.Printf("test instagram username (%s) not found", followTestUsername)
 					} else {
-						_, err := insta.Follow(user.User.ID)
+						err := user.Follow() //insta.Follow(user.User.ID)
 						if err != nil {
-							text := fmt.Sprintf("test user not followed, cancel /follow %v", err)
+							text := fmt.Sprintf("test user not followed, /follow canceled. %v", err)
 							telegramResp <- telegramResponse{text, "follow"}
 
 							stopChan <- true
 							return
+						} else {
+							log.Printf("test instagram username (%s) followed and unfollowed", user.Username)
 						}
-						insta.UnFollow(user.User.ID)
+						// 	user.Unfollow()
+						// 	// insta.UnFollow(user.User.ID)
 					}
 				}
 
@@ -688,25 +799,213 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 						reportAsString += fmt.Sprintf("\n#%s: ...", tag)
 
 						telegramResp <- telegramResponse{reportAsString, "follow"}
-						browse(tag, db, stopChan)
+						// browse(tag, db, stopChan)
+						feedTag, err := insta.Feed.Tags(tag)
+						// feedTag.AutoLoadMoreEnabled = true
+						// feedTag.Next()
+						if err != nil {
+							log.Println(err)
+						} else {
+							// success := feedTag.Next()
 
-						reportAsString = fmt.Sprintf("[%d/%d] %d%%", state["follow_current"], state["follow_all_count"], state["follow"])
-						for tag := range report {
-							if report[tag]["like"] > 0 || report[tag]["follow"] > 0 || report[tag]["comment"] > 0 {
-								reportAsString += fmt.Sprintf("\n#%s: %d 🐾, %d 👍, %d 💌", tag, report[tag]["follow"], report[tag]["like"], report[tag]["comment"])
-							} else {
-								reportAsString += fmt.Sprintf("\n#%s: no actions, possibly not enough images", tag)
+							// for feedTag.Next() {
+							// var i = 0
+							// for numFollowed < followCount || numLiked < likeCount || numCommented < commentCount {
+							if !followIsStarted.IsSet() {
+								stopChan <- true
+								return
 							}
-						}
 
-						if current != allCount {
-							reportAsString += fmt.Sprintf("\n... sleep %d seconds", 10)
-						}
+							log.Println("Fetching the list of images for #" + tag)
+							// i++
 
-						telegramResp <- telegramResponse{reportAsString, "follow"}
+							// Getting all the pictures we can on the first page
+							// Instagram will return a 500 sometimes, so we will retry 10 times.
+							// Check retry() for more info.
 
-						if current != allCount {
-							time.Sleep(10 * time.Second)
+							// tagFeed[tag] = append(tagFeed[tag], item)
+							// }
+							// var images, ok = tagFeed[tag]
+							// if ok {
+							// 	// log.Println("from cache #" + tag)
+							// } else {
+							// 	err := retry(10, 20*time.Second, func() (err error) {
+							// 		images, err = insta.TagFeed(tag)
+							// 		if err == nil {
+							// 			tagFeed[tag] = images
+							// 		}
+							// 		return
+							// 	})
+							// 	check(err)
+							// }
+
+							var l = 1
+							for _, item := range feedTag.Images {
+								// item.Next()
+								// for index := range images.FeedsResponse.Items {
+								if !followIsStarted.IsSet() {
+									stopChan <- true
+									return
+								}
+								// Exiting the loop if there is nothing left to do
+								if numFollowed >= followCount && numLiked >= likeCount && numCommented >= commentCount {
+									break
+								}
+
+								// Skip our own images
+								if item.User.Username == instaUsername {
+									continue
+								}
+
+								// Check if we should fetch new images for tag
+								if l >= followCount && l >= likeCount && l >= commentCount {
+									break
+								}
+
+								if stringInStringSlice(item.User.Username, whiteList) {
+									log.Printf("Skip following %s, in white list\n", item.User.Username)
+									continue
+								}
+
+								// Getting the user info
+								// Instagram will return a 500 sometimes, so we will retry 10 times.
+								// Check retry() for more info.
+								var posterInfo, ok = usersInfo[item.User.Username]
+								if ok {
+									// log.Println("from cache " + posterInfo.User.Username + " - for #" + tag)
+								} else {
+									err := retry(10, 20*time.Second, func() (err error) {
+										posterNew, err := insta.Profiles.ByName(item.User.Username)
+										if err == nil {
+											usersInfo[item.User.Username] = *posterNew
+											posterInfo = *posterNew
+										}
+										return
+									})
+									check(err)
+								}
+
+								poster := posterInfo
+								followerCount := poster.FollowerCount
+								likesCount := item.Likes
+								commentsCount := item.CommentCount
+								followingCount := poster.FollowingCount
+
+								// Will only follow and comment if we like the picture
+								like := numLiked < likeCount && !item.HasLiked
+								follow := numFollowed < followCount && like
+								comment := numCommented < commentCount && like
+
+								var relationshipRatio float64 // = 0.0
+
+								if followerCount != 0 && followingCount != 0 {
+									relationshipRatio = float64(followingCount) / float64(followerCount)
+								}
+
+								// log.Println("Checking followers for " + poster.Username + " - for #" + tag)
+
+								if follow {
+									if relationshipRatio == 0 || relationshipRatio < potencyRatio {
+										log.Printf("%s is not a potential user with the relationship ratio of %.2f (%d/%d) ~skipping user\n", poster.Username, relationshipRatio, followingCount, followerCount)
+										follow = false
+									} else {
+										log.Printf("%s with the relationship ratio of %.2f (%d/%d)\n", poster.Username, relationshipRatio, followingCount, followerCount)
+									}
+								}
+
+								// if followerCount > followUpperLimit {
+								// 	log.Printf("%s has %d followers, more than max %d\n", poster.Username, followerCount, followUpperLimit)
+								// 	follow = false
+								// } else if followerCount < followLowerLimit {
+								// 	log.Printf("%s has %d followers, less than min %d\n", poster.Username, followerCount, followLowerLimit)
+								// 	follow = false
+								// }
+
+								if likesCount > likeUpperLimit {
+									log.Printf("%s's image has %d likes, more than max %d\n", poster.Username, likesCount, likeUpperLimit)
+									like = false
+								} else if likesCount < likeLowerLimit {
+									log.Printf("%s's image has %d likes, less than min %d\n", poster.Username, likesCount, likeLowerLimit)
+									like = false
+								}
+
+								if commentsCount > commentUpperLimit {
+									log.Printf("%s's image has %d comments, more than max %d\n", poster.Username, commentsCount, commentUpperLimit)
+									comment = false
+								} else if commentsCount < commentLowerLimit {
+									log.Printf("%s's image has %d comments, less than min %d\n", poster.Username, commentsCount, commentLowerLimit)
+									comment = false
+								}
+
+								if like || comment || follow {
+									// log.Printf("%s has %d followers\n", poster.Username, followerCount)
+
+									if relationshipRatio >= potencyRatio {
+										l++
+										// Like, then comment/follow
+										if like {
+											if userLikesCount, ok := likesToAccountPerSession[posterInfo.Username]; ok {
+												if userLikesCount < maxLikesToAccountPerSession {
+													likeImage(tag, db, item, posterInfo)
+													item.HasLiked = true
+												} else {
+													log.Println("Likes count per user reached [" + poster.Username + "]")
+												}
+											} else {
+												likeImage(tag, db, item, posterInfo)
+											}
+
+											previoslyFollowed, _ := getFollowed(db, posterInfo.Username)
+											if previoslyFollowed != "" {
+												log.Printf("%s already following (%s), skipping\n", posterInfo.Username, previoslyFollowed)
+											} else {
+												if comment {
+													if !item.HasLiked {
+														commentImage(tag, db, item)
+													}
+												}
+												if follow {
+													followUser(tag, db, posterInfo)
+												}
+											}
+
+											// This is to avoid the temporary ban by Instagram
+											time.Sleep(30 * time.Second)
+										}
+									}
+								} else {
+									log.Printf("%s, nothing to do\n", poster.Username)
+								}
+							}
+							// log.Printf("%s done\n\n", poster.Username)
+							// }
+
+							// if viper.IsSet("limits.max_retry") && i > viper.GetInt("limits.max_retry") {
+							// 	log.Println("Currently not enough images for this tag to achieve goals")
+							// 	break
+							// }
+							// }
+							// }
+							// }
+
+							reportAsString = fmt.Sprintf("[%d/%d] %d%%", state["follow_current"], state["follow_all_count"], state["follow"])
+							for tag := range report {
+								if report[tag]["like"] > 0 || report[tag]["follow"] > 0 || report[tag]["comment"] > 0 {
+									reportAsString += fmt.Sprintf("\n#%s: %d 🐾, %d 👍, %d 💌", tag, report[tag]["follow"], report[tag]["like"], report[tag]["comment"])
+								} else {
+									reportAsString += fmt.Sprintf("\n#%s: no actions, possibly not enough images", tag)
+								}
+							}
+
+							if current != allCount {
+								reportAsString += fmt.Sprintf("\n... sleep %d seconds", 10)
+							}
+
+							telegramResp <- telegramResponse{reportAsString, "follow"}
+
+							if current != allCount {
+								time.Sleep(10 * time.Second)
+							}
 						}
 					}
 				}
@@ -737,210 +1036,43 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 	}
 }
 
-// Browses the page for a certain tag, until we reach the limits
-func browse(tag string, db *bolt.DB, stopChan chan bool) {
-	var i = 0
-	for numFollowed < followCount || numLiked < likeCount || numCommented < commentCount {
-		if !followIsStarted.IsSet() {
-			stopChan <- true
-			return
-		}
+// // Browses the page for a certain tag, until we reach the limits
+// func browse(tag string, db *bolt.DB, stopChan chan bool) {
 
-		log.Println("Fetching the list of images for #" + tag)
-		i++
+// }
 
-		// Getting all the pictures we can on the first page
-		// Instagram will return a 500 sometimes, so we will retry 10 times.
-		// Check retry() for more info.
+// // Goes through all the images for a certain tag
+// func goThrough(tag string, db *bolt.DB, images response.TagFeedsResponse, stopChan chan bool) {
 
-		var images, ok = tagFeed[tag]
-		if ok {
-			// log.Println("from cache #" + tag)
-		} else {
-			err := retry(10, 20*time.Second, func() (err error) {
-				images, err = insta.TagFeed(tag)
-				if err == nil {
-					tagFeed[tag] = images
-				}
-				return
-			})
-			check(err)
-		}
-
-		goThrough(tag, db, images, stopChan)
-
-		if viper.IsSet("limits.max_retry") && i > viper.GetInt("limits.max_retry") {
-			log.Println("Currently not enough images for this tag to achieve goals")
-			break
-		}
-	}
-}
-
-// Goes through all the images for a certain tag
-func goThrough(tag string, db *bolt.DB, images response.TagFeedsResponse, stopChan chan bool) {
-	var i = 1
-	for index := range images.FeedsResponse.Items {
-		if !followIsStarted.IsSet() {
-			stopChan <- true
-			return
-		}
-		// Exiting the loop if there is nothing left to do
-		if numFollowed >= followCount && numLiked >= likeCount && numCommented >= commentCount {
-			break
-		}
-
-		// Skip our own images
-		if images.FeedsResponse.Items[index].User.Username == instaUsername {
-			continue
-		}
-
-		// Check if we should fetch new images for tag
-		if i >= followCount && i >= likeCount && i >= commentCount {
-			break
-		}
-
-		if stringInStringSlice(images.FeedsResponse.Items[index].User.Username, whiteList) {
-			log.Printf("Skip following %s, in white list\n", images.FeedsResponse.Items[index].User.Username)
-			continue
-		}
-
-		// Getting the user info
-		// Instagram will return a 500 sometimes, so we will retry 10 times.
-		// Check retry() for more info.
-		var posterInfo, ok = usersInfo[images.FeedsResponse.Items[index].User.Username]
-		if ok {
-			// log.Println("from cache " + posterInfo.User.Username + " - for #" + tag)
-		} else {
-			err := retry(10, 20*time.Second, func() (err error) {
-				posterInfo, err = insta.GetUserByUsername(images.FeedsResponse.Items[index].User.Username)
-				if err == nil {
-					usersInfo[images.FeedsResponse.Items[index].User.Username] = posterInfo
-				}
-				return
-			})
-			check(err)
-		}
-
-		poster := posterInfo.User
-		followerCount := poster.FollowerCount
-		likesCount := images.FeedsResponse.Items[index].LikeCount
-		commentsCount := images.FeedsResponse.Items[index].CommentCount
-		followingCount := poster.FollowingCount
-
-		// Will only follow and comment if we like the picture
-		like := numLiked < likeCount && !images.FeedsResponse.Items[index].HasLiked
-		follow := numFollowed < followCount && like
-		comment := numCommented < commentCount && like
-
-		var relationshipRatio float64 // = 0.0
-
-		if followerCount != 0 && followingCount != 0 {
-			relationshipRatio = float64(followingCount) / float64(followerCount)
-		}
-
-		// log.Println("Checking followers for " + poster.Username + " - for #" + tag)
-
-		if follow {
-			if relationshipRatio == 0 || relationshipRatio < potencyRatio {
-				log.Printf("%s is not a potential user with the relationship ratio of %.2f (%d/%d) ~skipping user\n", poster.Username, relationshipRatio, followingCount, followerCount)
-				follow = false
-			} else {
-				log.Printf("%s with the relationship ratio of %.2f (%d/%d)\n", poster.Username, relationshipRatio, followingCount, followerCount)
-			}
-		}
-
-		// if followerCount > followUpperLimit {
-		// 	log.Printf("%s has %d followers, more than max %d\n", poster.Username, followerCount, followUpperLimit)
-		// 	follow = false
-		// } else if followerCount < followLowerLimit {
-		// 	log.Printf("%s has %d followers, less than min %d\n", poster.Username, followerCount, followLowerLimit)
-		// 	follow = false
-		// }
-
-		if likesCount > likeUpperLimit {
-			log.Printf("%s's image has %d likes, more than max %d\n", poster.Username, likesCount, likeUpperLimit)
-			like = false
-		} else if likesCount < likeLowerLimit {
-			log.Printf("%s's image has %d likes, less than min %d\n", poster.Username, likesCount, likeLowerLimit)
-			like = false
-		}
-
-		if commentsCount > commentUpperLimit {
-			log.Printf("%s's image has %d comments, more than max %d\n", poster.Username, commentsCount, commentUpperLimit)
-			comment = false
-		} else if commentsCount < commentLowerLimit {
-			log.Printf("%s's image has %d comments, less than min %d\n", poster.Username, commentsCount, commentLowerLimit)
-			comment = false
-		}
-
-		if like || comment || follow {
-			// log.Printf("%s has %d followers\n", poster.Username, followerCount)
-
-			if relationshipRatio >= potencyRatio {
-				i++
-				// Like, then comment/follow
-				if like {
-					if userLikesCount, ok := likesToAccountPerSession[posterInfo.User.Username]; ok {
-						if userLikesCount < maxLikesToAccountPerSession {
-							likeImage(tag, db, images.FeedsResponse.Items[index], posterInfo)
-							images.FeedsResponse.Items[index].HasLiked = true
-						} else {
-							log.Println("Likes count per user reached [" + poster.Username + "]")
-						}
-					} else {
-						likeImage(tag, db, images.FeedsResponse.Items[index], posterInfo)
-					}
-
-					previoslyFollowed, _ := getFollowed(db, posterInfo.User.Username)
-					if previoslyFollowed != "" {
-						log.Printf("%s already following (%s), skipping\n", posterInfo.User.Username, previoslyFollowed)
-					} else {
-						if comment {
-							if !images.FeedsResponse.Items[index].HasLiked {
-								commentImage(tag, db, images.FeedsResponse.Items[index])
-							}
-						}
-						if follow {
-							followUser(tag, db, posterInfo)
-						}
-					}
-
-					// This is to avoid the temporary ban by Instagram
-					time.Sleep(30 * time.Second)
-				}
-			}
-		} else {
-			log.Printf("%s, nothing to do\n", poster.Username)
-		}
-		// log.Printf("%s done\n\n", poster.Username)
-	}
-}
+// }
 
 // Likes an image, if not liked already
-func likeImage(tag string, db *bolt.DB, image response.MediaItemResponse, userInfo response.GetUsernameResponse) {
+func likeImage(tag string, db *bolt.DB, image goinsta.Item, userInfo goinsta.User) {
 	log.Println("Liking the picture https://www.instagram.com/p/" + image.Code)
 
 	if !image.HasLiked {
 		if !*dev {
-			insta.Like(image.ID)
+			image.Like()
+			// insta.Like(image.ID)
 		}
 		// log.Println("Liked")
 		numLiked++
 
 		report[tag]["like"]++
 		incStats(db, "like")
-		likesToAccountPerSession[userInfo.User.Username]++
+		likesToAccountPerSession[userInfo.Username]++
 	} else {
 		// log.Println("Image already liked")
 	}
 }
 
 // Comments an image
-func commentImage(tag string, db *bolt.DB, image response.MediaItemResponse) {
+func commentImage(tag string, db *bolt.DB, image goinsta.Item) {
 	// rand.Seed(time.Now().Unix())
 	text := commentsList[rand.Intn(len(commentsList))]
 	if !*dev {
-		insta.Comment(image.ID, text)
+		image.Comments.Add(text)
+		// insta.Comment(image.ID, text)
 	}
 	log.Println("Commented " + text)
 	numCommented++
@@ -950,31 +1082,31 @@ func commentImage(tag string, db *bolt.DB, image response.MediaItemResponse) {
 }
 
 // Follows a user, if not following already
-func followUser(tag string, db *bolt.DB, userInfo response.GetUsernameResponse) {
-	user := userInfo.User
-	userFriendShip, err := insta.UserFriendShip(user.ID)
-	check(err)
+func followUser(tag string, db *bolt.DB, user goinsta.User) {
+	// user := userInfo.User
+	// userFriendShip := user.Friendship
+	// check(err)
 	// If not following already
-	if !userFriendShip.Following {
+	if !user.Friendship.Following {
 		if !*dev {
 			if user.IsPrivate {
 				log.Printf("%s is private, skipping follow\n", user.Username)
 			} else {
 				log.Printf("Following %s\n", user.Username)
-				resp, err := insta.Follow(user.ID)
+				err := user.Follow()
 				if err != nil {
 					log.Println(err)
 				} else {
-					userFriendShip.Following = resp.FriendShipStatus.Following
+					user.Friendship.Following = true
 
-					if !userFriendShip.Following {
-						log.Println("Not followed")
-					}
+					// if !userFriendShip.Following {
+					// 	log.Println("Not followed")
+					// }
 				}
 			}
 		}
 		// log.Println("Followed")
-		if userFriendShip.Following {
+		if user.Friendship.Following {
 			numFollowed++
 			report[tag]["follow"]++
 			incStats(db, "follow")
@@ -1184,13 +1316,7 @@ Followed — %d
 	Refollowed — %d
 	Followed likers — %d
 Liked — %d
-Commented — %d
-
-<b>Cron status</b>
-follow %s
-unfollow %s
-like %s
-stats %s`
+Commented — %d`
 
 	unfollowCount, _ := getStats(db, "unfollow")
 	followCount, _ := getStats(db, "follow")
@@ -1209,10 +1335,10 @@ stats %s`
 		followLikersCount,
 		likeCount,
 		commentCount,
-		getJobState(c, cronFollow),
-		getJobState(c, cronUnfollow),
-		getJobState(c, cronStats),
-		getJobState(c, cronLike),
+		// getJobState(c, cronFollow),
+		// getJobState(c, cronUnfollow),
+		// getJobState(c, cronStats),
+		// getJobState(c, cronLike),
 	))
 
 	msg.DisableWebPagePreview = true
@@ -1440,55 +1566,130 @@ func updateLimits(bot *tgbotapi.BotAPI, limitStr string, userID int64) {
 	bot.Send(msg)
 }
 
+func updateProxy(bot *tgbotapi.BotAPI, proxyStr string, userID int64) {
+	msg := tgbotapi.NewMessage(userID, "")
+
+	if proxyStr == "" {
+		viper.Set("user.instagram.proxy", "")
+		viper.WriteConfig()
+	} else {
+		proxyURL, _ := url.Parse(proxyStr)
+
+		timeout := time.Duration(5 * time.Second)
+		httpClient := &http.Client{
+			Timeout: timeout,
+			Transport: &http.Transport{
+				DisableKeepAlives: true,
+				Proxy:             http.ProxyURL(proxyURL),
+			},
+		}
+		response, err := httpClient.Get("https://api.ipify.org?format=json")
+
+		if err != nil {
+			msg.Text = fmt.Sprintf("bad proxy: %s", err)
+			bot.Send(msg)
+		} else {
+			proxyStr = strings.TrimPrefix(proxyStr, "http://")
+			proxyStr = strings.TrimPrefix(proxyStr, "https://")
+
+			viper.Set("user.instagram.proxy", "http://"+proxyStr)
+			viper.WriteConfig()
+			msg.Text = "proxy updated, /relogin if needed"
+			bot.Send(msg)
+
+		}
+		defer response.Body.Close()
+	}
+}
+
 func getLastLikers() (result []string) {
-	latest, _ := insta.LatestFeed()
-	l := latest.Items
+	user, err := insta.Profiles.ByName(insta.Account.Username)
+	if err != nil {
+		log.Println(err)
+	}
+
+	latest := make([]goinsta.Item, 0)
+	latestItems := user.Feed()
+	for latestItems.Next() {
+		for _, item := range latestItems.Items {
+			latest = append(latest, item)
+		}
+	}
+
+	l := latest
 	if len(l) > 10 {
-		l = latest.Items[0:10] //last 10 posts
+		l = latest[0:10] //last 10 posts
 	}
 	for lindex := range l {
-		// log.Println(item.ID, item.HasLiked, item.LikeCount)
-		if l[lindex].LikeCount > 0 {
-			likers, _ := insta.MediaLikers(l[lindex].ID)
-			for index := range likers.Users {
-				// log.Println(liker.Username, liker.HasAnonymousProfilePicture)
-				if !stringInStringSlice(likers.Users[index].Username, result) {
-					result = append(result, likers.Users[index].Username)
+		if l[lindex].Likes > 0 {
+			l[lindex].SyncLikers()
+			likers := l[lindex].Likers
+			for _, item := range likers {
+				if !stringInStringSlice(item.Username, result) {
+					result = append(result, item.Username)
 				}
 			}
 		}
 	}
-	// log.Println(len(result), result)
+
 	return result
 }
 
 func likeFollowersPosts(db *bolt.DB) {
-	timeline, _ := insta.Timeline("")
-	length := len(timeline.Items)
-	if length > 16 {
-		length = 16
-	}
+	return
 
-	var usernames []string
+	// TODO: fix broken method https://github.com/ahmdrz/goinsta/issues/147
 
-	if length > 0 {
-		items := timeline.Items[0:length]
-		for index := range items {
-			// log.Println(item.ID, item.Caption, item.User.Username)
-			if !items[index].HasLiked {
-				time.Sleep(5 * time.Second)
-				insta.Like(items[index].ID)
-				incStats(db, "like")
+	// media := insta.Timeline.Get()
 
-				usernames = append(usernames, items[index].User.Username)
-			}
-		}
-		length = len(usernames)
-		if length > 0 {
-			usernames = sliceUnique(usernames)
-			log.Println("liked", strings.Join(usernames, ", "))
-		}
-	}
+	// for i := 0; i < 15; i++ {
+	// 	media.Next()
+
+	// 	fmt.Println("Next:", media.NextID)
+	// 	for _, item := range media.Items {
+	// 		fmt.Printf("  - %s has %d likes\n", item.Caption.Text, item.Likes)
+	// 	}
+	// }
+
+	// // // insta.Timeline.Sync()
+	// // timeline := insta.Timeline.Get()
+	// // var timelineItems []goinsta.Item
+
+	// // for insta.Timeline.Next() {
+	// // 	for _, item := range insta.Timeline.Items {
+	// // 		timelineItems = append(timelineItems, item)
+	// // 	}
+	// // }
+
+	// // length := len(timelineItems)
+	// // if length > 16 {
+	// // 	length = 16
+	// // }
+
+	// // log.Println(length)
+
+	// // var usernames []string
+
+	// // if length > 0 {
+	// // 	items := timelineItems[0:length]
+	// // 	for index := range items {
+	// // 		log.Println(items[index].ID, items[index].Caption, items[index].User.Username)
+	// // 		// 		if !items[index].HasLiked {
+	// // 		// 			time.Sleep(5 * time.Second)
+	// // 		// 			insta.Like(items[index].ID)
+	// // 		// 			incStats(db, "like")
+
+	// // 		// 			usernames = append(usernames, items[index].User.Username)
+	// // 		// 		}
+	// // 		// 	}
+	// // 		// 	length = len(usernames)
+	// // 		// 	if length > 0 {
+	// // 		// 		usernames = sliceUnique(usernames)
+	// // 		// 		log.Println("liked", strings.Join(usernames, ", "))
+	// // 	}
+	// // }
+
+	// // log.Println(usernames)
 }
 
 func addWatching(bot *tgbotapi.BotAPI, db *bolt.DB, userid string, userID int64) {
@@ -1713,11 +1914,11 @@ func startFollowFromQueue(db *bolt.DB, limit int) {
 // }
 
 func getStatus() (result string) {
-	userinfo, err := insta.GetUserByUsername(insta.LoggedInUser.Username)
+	userinfo, err := insta.Profiles.ByName(insta.Account.Username)
 	if err != nil {
-		log.Println("getStatus", insta.LoggedInUser.Username, err)
+		log.Println("getStatus", insta.Account.Username, err)
 	} else {
-		result = fmt.Sprintf("🖼%d, 👀%d, 🐾%d", userinfo.User.MediaCount, userinfo.User.FollowerCount, userinfo.User.FollowingCount)
+		result = fmt.Sprintf("🖼%d, 👀%d, 🐾%d", userinfo.MediaCount, userinfo.FollowerCount, userinfo.FollowingCount)
 	}
 
 	return

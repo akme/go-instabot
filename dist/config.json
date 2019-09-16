@@ -3,7 +3,8 @@
         "instagram": {
             "username": "foobar",
             "password": "fooBAR",
-            "follow_test_username": "testuser"
+            "follow_test_username": "testuser",
+            "proxy": ""
         },
         "telegram": {
             "admins": [
@@ -11,6 +12,10 @@
                 321
             ],
             "reportID": 123,
+            "proxy": "",
+            "proxy_port": 0,
+            "proxy_user": "",
+            "proxy_password": "",
             "token": ".....:......._....."
         }
     },

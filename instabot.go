@@ -1,8 +1,11 @@
 package main
 
 import (
+	"context"
 	"fmt"
 	"log"
+	"net"
+	"net/http"
 	"os"
 	"os/signal"
 	"sync"
@@ -15,6 +18,7 @@ import (
 	"github.com/fsnotify/fsnotify"
 	"github.com/spf13/viper"
 	"github.com/tevino/abool"
+	"golang.org/x/net/proxy"
 	tgbotapi "gopkg.in/telegram-bot-api.v4"
 )
 
@@ -30,11 +34,18 @@ var (
 	editMessage              = make(map[string]map[int]int)
 	likesToAccountPerSession = make(map[string]int)
 
-	reportID      int64
-	admins        []string
-	telegramToken string
+	reportID int64
+	admins   []string
+
+	telegramToken         string
+	telegramProxy         string
+	telegramProxyPort     int32
+	telegramProxyUser     string
+	telegramProxyPassword string
+
 	instaUsername string
 	instaPassword string
+	instaProxy    string
 
 	commandKeyboard tgbotapi.ReplyKeyboardMarkup
 
@@ -74,6 +85,8 @@ func main() {
 
 	go login()
 
+	defer insta.Logout()
+
 	telegramResp = make(chan telegramResponse)
 
 	startFollowChan, _, _, stopFollowChan := followManager(db)
@@ -81,7 +94,31 @@ func main() {
 	startRefollowChan, _, innerRefollowChan, stopRefollowChan := refollowManager(db)
 	startfollowLikersChan, _, innerfollowLikersChan, stopFollowLikersChan := followLikersManager(db)
 
-	bot, err := tgbotapi.NewBotAPI(telegramToken)
+	var tr http.Transport
+
+	if telegramProxy != "" {
+		tr = http.Transport{
+			DialContext: func(_ context.Context, network, addr string) (net.Conn, error) {
+				socksDialer, err := proxy.SOCKS5(
+					"tcp",
+					fmt.Sprintf("%s:%d", telegramProxy, telegramProxyPort),
+					&proxy.Auth{User: telegramProxyUser, Password: telegramProxyPassword},
+					proxy.Direct,
+				)
+				if err != nil {
+					log.Println(err)
+					return nil, err
+				}
+
+				return socksDialer.Dial(network, addr)
+			},
+		}
+	}
+
+	bot, err := tgbotapi.NewBotAPIWithClient(telegramToken, &http.Client{
+		Transport: &tr,
+	})
+
 	if err != nil {
 		log.Println(err)
 		return
@@ -142,7 +179,14 @@ func main() {
 				msg.DisableNotification = true
 
 				switch command {
-
+				case "relogin":
+					err = createAndSaveSession()
+					if err != nil {
+						msg.Text = fmt.Sprintf("relogin failed with error %s", err)
+					} else {
+						msg.Text = fmt.Sprintf("relogin done")
+					}
+					bot.Send(msg)
 				case "refollow":
 					if args == "" {
 						msg.Text = fmt.Sprintf("/refollow username")
@@ -225,6 +269,8 @@ func main() {
 					getLimits(bot, int64(update.Message.From.ID))
 				case "updatelimits":
 					updateLimits(bot, args, int64(update.Message.From.ID))
+				case "updateproxy":
+					updateProxy(bot, args, int64(update.Message.From.ID))
 				case "like":
 					likeFollowersPosts(db)
 				case "watch":

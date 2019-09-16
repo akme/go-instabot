@@ -113,7 +113,7 @@ Since you used the `go get` command, you now have the `go-instabot` executable a
 ### Options
 **-h** : Use this option to display the list of options.
 
-**-dev** : Use this option to use the script in development mode : nothing will be done for real. You will need to put a config file in a 'local' folder.
+**-config** : Path to config file. config/config.json by default.
 
 **-logs** : Use this option to enable the logfile. The script will continue writing everything on the screen, but it will also write it in a .log file.
 
