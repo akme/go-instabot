@@ -16,9 +16,6 @@ import (
 
 	"github.com/ad/cron"
 
-	"github.com/ahmdrz/goinsta/v2"
-
-
 	"github.com/boltdb/bolt"
 	"github.com/spf13/viper"
 
