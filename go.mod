@@ -1,4 +1,4 @@
-module github.com/ad/go-instabot
+module github.com/akme/go-instabot
 
 go 1.12
 
