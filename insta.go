@@ -802,7 +802,7 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 						// browse(tag, db, stopChan)
 						feedTag, err := insta.Feed.Tags(tag)
 						// feedTag.AutoLoadMoreEnabled = true
-						// feedTag.Next()
+
 						if err != nil {
 							log.Println(err)
 						} else {
@@ -968,14 +968,27 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 													followUser(tag, db, posterInfo)
 												}
 											}
-
-											// This is to avoid the temporary ban by Instagram
-											time.Sleep(30 * time.Second)
 										}
 									}
 								} else {
 									log.Printf("%s, nothing to do\n", poster.Username)
 								}
+
+								reportAsString = fmt.Sprintf("[%d/%d] %d%%", state["follow_current"], state["follow_all_count"], state["follow"])
+								for tag := range report {
+									if report[tag]["like"] > 0 || report[tag]["follow"] > 0 || report[tag]["comment"] > 0 {
+										reportAsString += fmt.Sprintf("\n#%s: %d 🐾, %d 👍, %d 💌", tag, report[tag]["follow"], report[tag]["like"], report[tag]["comment"])
+									} else {
+										reportAsString += fmt.Sprintf("\n#%s: ...", tag)
+									}
+								}
+
+								telegramResp <- telegramResponse{reportAsString, "follow"}
+
+								// This is to avoid the temporary ban by Instagram
+								time.Sleep(17 * time.Second)
+
+								feedTag.Next()
 							}
 							// log.Printf("%s done\n\n", poster.Username)
 							// }
@@ -988,14 +1001,14 @@ func loopTags(db *bolt.DB, innerChan chan string, stopChan chan bool) {
 							// }
 							// }
 
-							reportAsString = fmt.Sprintf("[%d/%d] %d%%", state["follow_current"], state["follow_all_count"], state["follow"])
-							for tag := range report {
-								if report[tag]["like"] > 0 || report[tag]["follow"] > 0 || report[tag]["comment"] > 0 {
-									reportAsString += fmt.Sprintf("\n#%s: %d 🐾, %d 👍, %d 💌", tag, report[tag]["follow"], report[tag]["like"], report[tag]["comment"])
-								} else {
-									reportAsString += fmt.Sprintf("\n#%s: no actions, possibly not enough images", tag)
-								}
-							}
+							// reportAsString = fmt.Sprintf("[%d/%d] %d%%", state["follow_current"], state["follow_all_count"], state["follow"])
+							// for tag := range report {
+							// 	if report[tag]["like"] > 0 || report[tag]["follow"] > 0 || report[tag]["comment"] > 0 {
+							// 		reportAsString += fmt.Sprintf("\n#%s: %d 🐾, %d 👍, %d 💌", tag, report[tag]["follow"], report[tag]["like"], report[tag]["comment"])
+							// 	} else {
+							// 		reportAsString += fmt.Sprintf("\n#%s: no actions, possibly not enough images", tag)
+							// 	}
+							// }
 
 							if current != allCount {
 								reportAsString += fmt.Sprintf("\n... sleep %d seconds", 10)
@@ -1068,17 +1081,25 @@ func likeImage(tag string, db *bolt.DB, image goinsta.Item, userInfo goinsta.Use
 
 // Comments an image
 func commentImage(tag string, db *bolt.DB, image goinsta.Item) {
-	// rand.Seed(time.Now().Unix())
-	text := commentsList[rand.Intn(len(commentsList))]
-	if !*dev {
-		image.Comments.Add(text)
-		// insta.Comment(image.ID, text)
-	}
-	log.Println("Commented " + text)
-	numCommented++
+	// FIXME
+	return
 
-	report[tag]["comment"]++
-	incStats(db, "comment")
+	// // rand.Seed(time.Now().Unix())
+	// text := commentsList[rand.Intn(len(commentsList))]
+	// if !*dev {
+	// 	// image.Comments.Sync()
+	// 	err := image.Comments.Add(text)
+	// 	if err != nil {
+	// 		log.Println(err)
+	// 		return
+	// 	}
+	// 	// insta.Comment(image.ID, text)
+	// }
+	// log.Println("Commented " + text)
+	// numCommented++
+
+	// report[tag]["comment"]++
+	// incStats(db, "comment")
 }
 
 // Follows a user, if not following already

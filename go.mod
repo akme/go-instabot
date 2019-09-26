@@ -4,7 +4,7 @@ go 1.12
 
 require (
 	github.com/ad/cron v0.0.0-20160225024449-9eb6958bd525
-	github.com/ahmdrz/goinsta/v2 v2.4.4
+	github.com/ahmdrz/goinsta/v2 v2.4.5-0.20190808151020-380c9429900d
 	github.com/boltdb/bolt v1.3.1
 	github.com/fsnotify/fsnotify v1.4.7
 	github.com/go-telegram-bot-api/telegram-bot-api v4.6.4+incompatible // indirect
